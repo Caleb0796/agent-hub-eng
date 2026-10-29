@@ -1,7 +1,7 @@
-import { env, exports as workers } from 'cloudflare:workers';
+import { env, server } from './runtime';
 import { describe, it, expect } from 'vitest';
 import { fixture, envelope, seedOwner, ownerHeaders, keyPair } from './helpers';
-import { Mailbox } from '../src/worker/messages';
+import { Mailbox } from '../src/server/messages';
 import { canonical, fingerprint, signPayload } from '../src/shared/crypto';
 import { PROTOCOL_VERSION } from '../src/shared/protocol';
 import { validateOwnerPayload } from '../src/shared/authorization';
@@ -212,7 +212,7 @@ describe('two independent owners and bounded ciphertext sessions', () => {
   it('requires authenticated browser sessions, same-origin and CSRF for owner actions', async () => {
     const alice = await seedOwner('Carol');
     const request = (headers: Record<string, string>) =>
-      workers.default.fetch('http://localhost:8789/api/agents', {
+      server.fetch('http://localhost:8789/api/agents', {
         method: 'POST',
         headers,
         body: JSON.stringify({ platform: 'dot', label: 'Owner-controlled Dot' }),
@@ -224,10 +224,10 @@ describe('two independent owners and bounded ciphertext sessions', () => {
     ).toBe(403);
     expect((await request(ownerHeaders(alice))).status).toBe(201);
     const other = await seedOwner('Dana');
-    const own = await workers.default.fetch('http://localhost:8789/api/dashboard', {
+    const own = await server.fetch('http://localhost:8789/api/dashboard', {
         headers: ownerHeaders(alice),
       }),
-      unrelated = await workers.default.fetch('http://localhost:8789/api/dashboard', {
+      unrelated = await server.fetch('http://localhost:8789/api/dashboard', {
         headers: ownerHeaders(other),
       });
     expect((await own.json<{ agents: unknown[] }>()).agents).toHaveLength(1);

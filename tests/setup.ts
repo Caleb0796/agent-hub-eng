@@ -1,6 +1,9 @@
-import { env } from 'cloudflare:workers';
-import { applyD1Migrations } from 'cloudflare:test';
-import { beforeAll } from 'vitest';
+import { beforeAll, afterAll } from 'vitest';
+import { client } from './runtime';
+import { migrate } from '../scripts/migrations.mjs';
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+  await migrate(client);
+});
+afterAll(() => {
+  client.close();
 });

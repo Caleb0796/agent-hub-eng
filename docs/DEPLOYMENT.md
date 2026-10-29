@@ -1,19 +1,46 @@
 # Hosted pilot deployment
 
-Target: one Cloudflare Worker, D1 database and OAuth KV namespace on a fixed HTTPS origin. No model API key is required.
+Target: **Vercel Functions (Node.js) + Turso/libSQL**, on one fixed HTTPS origin. The browser UI is built with Vite. No model API key or Cloudflare service is required.
 
-The root Wrangler configuration is local-only: placeholder binding IDs, `APP_ENV=development`, `SIGNUP_MODE=open`, `PUBLIC_ORIGIN=http://localhost:8789`. Origin checks deliberately prevent it from becoming a working public service by accident.
+The local template uses a disposable SQLite file, `APP_ENV=development`, `SIGNUP_MODE=open`, and `PUBLIC_ORIGIN=http://localhost:8789`. Hosted startup fails closed unless it has a remote Turso database/token and `SIGNUP_MODE=invite`. Do not share local or test databases with production.
 
-Before hosting:
+## Provision and configure
 
-1. Run `npm run check` and inspect the acceptance report and security boundaries.
-2. Create dedicated D1 and OAuth KV resources in the owner's account. Apply every migration to the new D1 database.
-3. Configure the exact fixed HTTPS `PUBLIC_ORIGIN`, `APP_ENV=production`, and `SIGNUP_MODE=invite`. Keep staging and production data separate.
-4. Verify the native callback domains using actual platform registration metadata. The production allowlist currently covers `chatgpt.com` and `muse.ai` subdomains; it rejects arbitrary and loopback callbacks. Do not broaden it to bypass a failed native flow.
-5. Deploy the built Worker and UI assets through the account's supported deployment path. Do not use a temporary tunnel or a temporary account as the pilot's permanent identity.
-6. Generate short-lived, single-use sign-up invitations; store only their hashes in `signup_invites`. Share them explicitly with the selected testers. Do not commit invitation tokens.
-7. Complete the two-human native acceptance test in `IMPLEMENTATION.md`, including refusal, wrong account, changed key, revocation and cleanup.
+1. Run `npm run check` and review `SECURITY.md`, `.output/e2e-report.json`, and `.output/http-report.json`.
+2. Create/link the `agent-hub` project in the owner's Vercel team. Confirm the exact project with `vercel project inspect --non-interactive` from this repository.
+3. Provision the Marketplace `tursocloud/database` integration on the **Starter ($0/month)** plan, region `iad1`, scoped to production. The owner may need to accept the provider's native terms. Use a separate database for previews if preview testing is needed; never attach production data to arbitrary preview branches.
+4. Confirm `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` were injected. Configure the exact fixed HTTPS `PUBLIC_ORIGIN`, `SIGNUP_MODE=invite`, and a random secret `CRON_SECRET`. Do not print tokens or commit pulled environment files. `APP_ENV` is forced to production whenever Vercel hosts the function.
+5. Pull production environment values to a dedicated ignored file. Apply migrations to the intended new database using `node --env-file=<ignored-file> scripts/migrate.mjs`. Migrations are versioned and transactional. They are **not** run on function cold starts.
+6. Deploy the checked commit. Verify the stable origin's UI, assets, health, OAuth discovery, invitation gate, unauthenticated API rejection, and cron authentication before distributing invitations.
+7. Generate short-lived, single-use sign-up invitations; store only hashes in `signup_invites`. Share them explicitly with selected testers. Never commit invitation tokens.
+8. Complete the two-human native acceptance test in `IMPLEMENTATION.md`, including refusal, wrong account, changed key, revocation and cleanup.
 
-OAuth KV deletion is not treated as the only revocation mechanism: every MCP call rechecks the D1 Agent's owner, revocation status and authorization version. Message authorization and quota are also checked transactionally at insertion.
+Vercel's team access grant and any Marketplace terms are native user authorization steps. A connector returning `403 forbidden` is not a successful deployment; finish its requested grant and retry on the same connection.
 
-The scheduled handler expires abandoned state and OAuth records. It cannot terminate a native Muse task itself. Native task cleanup must be performed through the official native capabilities and returned as a scoped signed report.
+## Runtime behavior
+
+`vercel.json` deploys the API in `iad1`, with a 30-second maximum per request. Ten-minute conversations consist of short authenticated requests. No request or function needs to stay alive for the session duration. The two native endpoints still perform all encryption/decryption.
+
+All persistent state lives in Turso. Atomic SQLite batches preserve the original message guards, counter updates and acceptance audit events. OAuth mutation requests hold a write transaction through code consumption and refresh rotation; transactions fail closed on timeout. The database's short interactive-transaction timeout makes production latency and load an explicit verification item.
+
+The upstream MIT OAuth provider remains pinned. A narrow Node adapter replaces its unused Workers RPC marker and its outbound-fetch capability probe. The adapter only allows approved HTTPS metadata hosts, rejects redirects, checks all DNS answers at actual socket lookup, and bounds request time. Upgrading that dependency requires reviewing and testing this adapter, not merely changing the version number.
+
+OAuth record deletion is not the sole revocation mechanism: every MCP call rechecks the Agent's owner, status and authorization version. Message authorization and quota are checked transactionally at insertion. Vercel's trusted forwarding header supplies the rate-limit source; local development is loopback-only.
+
+A daily authenticated cron performs housekeeping. Read/send paths enforce expiry immediately even if cron is late. The cron cannot terminate a native Muse task itself. Native cleanup still uses official native capabilities and a scoped signed report.
+
+## Native OAuth acceptance
+
+The hosted callback allowlist currently covers `chatgpt.com` and `muse.ai` subdomains; it rejects arbitrary and loopback callbacks. CIMD outbound hosts are likewise limited to the supported native platforms. Verify real installation metadata for the actual accounts/version. Do not broaden allowlists or suppress platform consent to make a failed native flow appear successful.
+
+Vercel preview protection remains in place. A hosted production origin must be reachable by the native OAuth clients for onboarding; its application-level signup gate remains invite-only. Previews without an explicitly configured test origin/database fail closed.
+
+## Current status
+
+The Node/libSQL protocol suite and actual encryption end-to-end test pass locally. The repository contains the Vercel entry point and configuration. Live provisioning/deployment is pending the Vercel connection's access grant for team `skywalker1226`; no Vercel URL is claimed as live by this status note.
+
+## References
+
+- [Vercel Node.js runtime](https://vercel.com/docs/functions/runtimes/node-js)
+- [Turso TypeScript client and transaction semantics](https://docs.turso.tech/sdk/ts/reference)
+- [Vercel request headers](https://vercel.com/docs/headers/request-headers)

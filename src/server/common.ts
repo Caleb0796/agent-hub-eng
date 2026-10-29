@@ -3,10 +3,11 @@ import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { timingSafeEqual } from 'node:crypto';
 import { sha256, utf8 } from '../shared/crypto';
+import type { Connection, Statement } from './storage';
+export type { Connection } from './storage';
 
 export type HubBindings = Env & { OAUTH_PROVIDER: OAuthHelpers };
 export type HubContext = Context<{ Bindings: HubBindings }>;
-export type Connection = Pick<D1Database, 'prepare' | 'batch'>;
 export type HttpStatus = 400 | 401 | 403 | 404 | 409 | 410 | 413 | 422 | 429 | 500 | 503;
 
 export class HubError extends Error {
@@ -29,7 +30,7 @@ export function ensure(
 }
 
 export function db(env: Env): Connection {
-  return env.DB.withSession('first-primary');
+  return env.DB;
 }
 export function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
@@ -132,7 +133,7 @@ export function audit(
   metadata: Record<string, string | number | boolean | null> = {},
   at = nowSeconds(),
   eventId: string = crypto.randomUUID(),
-): D1PreparedStatement {
+): Statement {
   return connection
     .prepare(
       'INSERT OR IGNORE INTO audit_events(id,event_type,owner_id,agent_id,entity_id,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)',

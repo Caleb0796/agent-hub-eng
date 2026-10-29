@@ -1,10 +1,10 @@
-import { exports as workers } from 'cloudflare:workers';
+import { server } from './runtime';
 import { describe, it, expect } from 'vitest';
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server';
 import { signPayload } from '../src/shared/crypto';
 import { keyPair } from './helpers';
 import { Browser, authenticator } from './support/passkey-device';
-const makeBrowser = () => new Browser((input, init) => workers.default.fetch(input, init));
+const makeBrowser = () => new Browser((input, init) => server.fetch(input, init));
 
 describe('passkey owner authentication', () => {
   it('registers two distinct owners with real attestation verification and authenticates the original credential', async () => {

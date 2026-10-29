@@ -1,4 +1,4 @@
-import { exports as workers } from 'cloudflare:workers';
+import { server } from './runtime';
 import { describe, it, expect } from 'vitest';
 import { base64url, randomToken } from '../src/shared/crypto';
 import { seedOwner, ownerHeaders } from './helpers';
@@ -9,14 +9,14 @@ const base = 'http://localhost:8789',
   callback = 'http://localhost:45678/callback';
 async function authorize() {
   const u = await seedOwner('OAuthOwner');
-  const create = await workers.default.fetch(`${base}/api/agents`, {
+  const create = await server.fetch(`${base}/api/agents`, {
     method: 'POST',
     headers: ownerHeaders(u),
     body: JSON.stringify({ platform: 'dot', label: 'Native Dot' }),
   });
   const agent = await create.json<{ id: string }>();
   expect(create.status).toBe(201);
-  const register = await workers.default.fetch(`${base}/oauth/register`, {
+  const register = await server.fetch(`${base}/oauth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -43,7 +43,7 @@ async function authorize() {
     code_challenge_method: 'S256',
     state: randomToken(),
   });
-  const page = await workers.default.fetch(`${base}/authorize?${params}`, {
+  const page = await server.fetch(`${base}/authorize?${params}`, {
     headers: ownerHeaders(u),
     redirect: 'manual',
   });
@@ -66,7 +66,7 @@ async function authorize() {
     label: 'Native Dot',
   });
   for (const scope of Object.values(scopes)) form.append('scope', scope);
-  const consent = await workers.default.fetch(`${base}/authorize`, {
+  const consent = await server.fetch(`${base}/authorize`, {
     method: 'POST',
     headers: {
       Origin: base,
@@ -84,7 +84,7 @@ async function authorize() {
   const code = location.searchParams.get('code')!;
   expect(code).toBeTruthy();
   const exchange = (overrides: Record<string, string> = {}) =>
-    workers.default.fetch(`${base}/oauth/token`, {
+    server.fetch(`${base}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -102,14 +102,14 @@ async function authorize() {
 
 describe('native OAuth without copying API keys', () => {
   it('publishes protected-resource discovery and S256 support', async () => {
-    const unauth = await workers.default.fetch(resource, {
+    const unauth = await server.fetch(resource, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
     expect(unauth.status).toBe(401);
     expect(unauth.headers.get('WWW-Authenticate')).toContain('resource_metadata=');
-    const metadata = await workers.default.fetch(`${base}/.well-known/oauth-authorization-server`);
+    const metadata = await server.fetch(`${base}/.well-known/oauth-authorization-server`);
     const body = await metadata.json<{
       code_challenge_methods_supported: string[];
       registration_endpoint: string;
@@ -120,6 +120,18 @@ describe('native OAuth without copying API keys', () => {
     expect(body.authorization_response_iss_parameter_supported).toBe(true);
   });
 
+  it('keeps CIMD enabled with the Node public-network policy and blocks private targets', async () => {
+    const params = new URLSearchParams({
+      client_id: 'https://169.254.169.254/client.json',
+      redirect_uri: callback,
+      response_type: 'code',
+      resource,
+    });
+    const response = await server.fetch(`${base}/authorize?${params}`);
+    expect(response.status).toBe(400);
+    expect((await response.json<{ error: string }>()).error).toBe('client_metadata_unavailable');
+  });
+
   it('completes DCR, consent and PKCE; binds the token to one Agent and forbids owner APIs', async () => {
     const flow = await authorize();
     expect((await flow.exchange({ code_verifier: randomToken(48) })).status).toBe(400);
@@ -128,7 +140,7 @@ describe('native OAuth without copying API keys', () => {
     expect(exchanged.status).toBe(200);
     const token = await exchanged.json<{ access_token: string; refresh_token: string }>();
     expect(token.access_token.length).toBeGreaterThan(20);
-    const identity = await workers.default.fetch(resource, {
+    const identity = await server.fetch(resource, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token.access_token}`,
@@ -148,7 +160,7 @@ describe('native OAuth without copying API keys', () => {
     }>();
     expect(identityBody.result.structuredContent.agent_id).toBe(flow.agent.id);
     expect(identityBody.result.structuredContent.owner_id).toBe(flow.u.id);
-    const forbidden = await workers.default.fetch(`${base}/api/agents`, {
+    const forbidden = await server.fetch(`${base}/api/agents`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token.access_token}`,
@@ -158,12 +170,12 @@ describe('native OAuth without copying API keys', () => {
       body: JSON.stringify({ platform: 'muse', label: 'Unauthorized' }),
     });
     expect(forbidden.status).toBe(401);
-    const revoke = await workers.default.fetch(`${base}/api/agents/${flow.agent.id}/revoke`, {
+    const revoke = await server.fetch(`${base}/api/agents/${flow.agent.id}/revoke`, {
       method: 'POST',
       headers: ownerHeaders(flow.u),
     });
     expect(revoke.status).toBe(200);
-    const stale = await workers.default.fetch(resource, {
+    const stale = await server.fetch(resource, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token.access_token}`,
@@ -180,8 +192,14 @@ describe('native OAuth without copying API keys', () => {
     expect((await flow.exchange()).status).toBe(400);
   });
 
+  it('allows only one exchange of an authorization code under concurrent requests', async () => {
+    const flow = await authorize();
+    const responses = await Promise.all([flow.exchange(), flow.exchange()]);
+    expect(responses.map((x) => x.status).sort()).toEqual([200, 400]);
+  });
+
   it('rejects unapproved callback domains and public clients without PKCE', async () => {
-    const forbidden = await workers.default.fetch(`${base}/oauth/register`, {
+    const forbidden = await server.fetch(`${base}/oauth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -191,7 +209,7 @@ describe('native OAuth without copying API keys', () => {
       }),
     });
     expect(forbidden.status).toBe(400);
-    const register = await workers.default.fetch(`${base}/oauth/register`, {
+    const register = await server.fetch(`${base}/oauth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -207,7 +225,7 @@ describe('native OAuth without copying API keys', () => {
       response_type: 'code',
       resource,
     });
-    const response = await workers.default.fetch(`${base}/authorize?${params}`, {
+    const response = await server.fetch(`${base}/authorize?${params}`, {
       redirect: 'manual',
     });
     expect(response.status).toBe(302);

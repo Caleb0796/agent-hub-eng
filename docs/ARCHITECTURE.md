@@ -6,7 +6,7 @@ Two owners authenticate, claim their own native endpoints, independently approve
 
 ```mermaid
 flowchart LR
-  OA[Owner A browser<br/>passkey + approval key] -->|signed claim, pair, grant| H[Hub API and D1 policy state]
+  OA[Owner A browser<br/>passkey + approval key] -->|signed claim, pair, grant| H[Vercel API and Turso policy state]
   OB[Owner B browser<br/>passkey + approval key] -->|signed claim, pair, grant| H
   D[Native Dot] --> EA[Dot endpoint<br/>local private keys]
   M[Native Muse] --> EB[Muse endpoint<br/>local private keys]
@@ -14,7 +14,7 @@ flowchart LR
   H -->|signed ciphertext| EB
   EB -->|signed ciphertext| H
   H -->|signed ciphertext| EA
-  A[OAuth authorization server<br/>maintained provider library + KV] -->|one Agent per token| H
+  A[OAuth authorization server<br/>maintained provider library + SQL records] -->|one Agent per token| H
 ```
 
 The browser is the owner authority; the native agent credential cannot approve claims, pairings or grants. The owner web client is still trusted code, as explained in `SECURITY.md`.
@@ -35,7 +35,7 @@ Native execution permission is a separate boundary. The Hub accepts a signed rea
 
 ## Data and message acceptance
 
-The resource server resolves sender identity from the OAuth token and rechecks the D1 Agent status/version on every request. Message inputs are strict signed envelopes. A database trigger checks live pairing and Agent state, two owner approvals, both readiness records, fixed recipient, current key generations, sequence, latest reply reference, quota and time before inserting. Insertion, the conversation counter and the acceptance audit event commit together.
+The resource server resolves sender identity from the OAuth token and rechecks the database Agent status/version on every request. Message inputs are strict signed envelopes. A database trigger checks live pairing and Agent state, two owner approvals, both readiness records, fixed recipient, current key generations, sequence, latest reply reference, quota and time before inserting. Insertion, the conversation counter and the acceptance audit event commit together.
 
 The first eligible recipient retrieval atomically starts the active window. Deadline values cannot be changed after being set. Preparing or queuing a first message does not start the Hub's active clock. The endpoint also keeps a conservative local safety deadline from its first send/decryption, persists it across process restarts and never extends it in response to a later server value.
 
@@ -44,3 +44,11 @@ After expiry, a five-minute receipt window permits previously accepted ciphertex
 ## What remains outside this architecture slice
 
 Durable native wake-up, independently verified native cleanup, malicious web-client update resistance, forward secrecy, owner-readable history, production retention and recovery are separate gates. The application must keep these distinctions visible in capability and evidence labels.
+
+## Vercel runtime
+
+The UI is built with Vite and the API runs as a Node.js Vercel Function. Turso/libSQL holds both policy state and OAuth records. Schema triggers remain SQLite-native. Batches use write transactions; OAuth authorization-code consumption and refresh rotation additionally use an interactive write transaction, so separate instances cannot redeem the same code concurrently. A per-instance queue reduces lock contention; the database transaction remains the authority across instances.
+
+The pinned upstream OAuth library uses standard fetch handlers. Its optional Workers RPC marker is mapped to a class that throws if instantiated. The build lexically binds its network calls and capability probe to a Node adapter: only approved HTTPS metadata hosts, public DNS results validated at socket connection time, no redirects, and bounded timeouts. This does not change global fetch or route database traffic through the metadata adapter. Library upgrades require repeating the OAuth and network boundary tests.
+
+Daily cron performs housekeeping only. Message acceptance, delivery, OAuth expiry and revocation checks do not depend on a cron firing on time. Interactive libSQL transactions have a short timeout; failures close the operation rather than relaxing authentication. Hosted load and native OAuth latency remain acceptance checks.

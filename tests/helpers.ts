@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env } from './runtime';
 import {
   base64url,
   canonical,
@@ -8,8 +8,8 @@ import {
   signPayload,
 } from '../src/shared/crypto';
 import { PROTOCOL_VERSION, type MessageEnvelope, type Platform } from '../src/shared/protocol';
-import { Hub, type AgentRow, type ConversationRow } from '../src/worker/hub';
-import { db } from '../src/worker/common';
+import { Hub, type AgentRow, type ConversationRow } from '../src/server/hub';
+import { db } from '../src/server/common';
 
 export async function keyPair() {
   const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);

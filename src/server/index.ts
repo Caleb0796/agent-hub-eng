@@ -22,6 +22,13 @@ app.route('/api', api);
 app.route('/', oauthRoutes);
 app.route('/', onboarding);
 app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.1.0' }));
+app.get('/api/cron/cleanup', async (c) => {
+  const expected = c.env.CRON_SECRET;
+  if (!expected || c.req.header('Authorization') !== `Bearer ${expected}`)
+    return c.json({ error: 'unauthorized' }, 401);
+  await cleanup(c.env);
+  return c.json({ ok: true });
+});
 app.get('/.well-known/agent-hub.json', (c) =>
   c.json({
     version: 'agent-hub/1',
@@ -51,7 +58,7 @@ app.get('/.well-known/agent-hub.json', (c) =>
   }),
 );
 app.post('/api/endpoint/cleanup', async (c) => {
-  await rateLimit(c.env, `cleanup:${c.req.header('CF-Connecting-IP') ?? 'local'}`, 30);
+  await rateLimit(c.env, `cleanup:${c.req.header('X-Forwarded-For') ?? 'local'}`, 30);
   const value = z
     .object({
       agentId: idSchema,
@@ -81,7 +88,7 @@ app.get('*', async (c) => {
 });
 app.onError((error, c) => errorResponse(error, c.env));
 
-function errorResponse(error: unknown, env: Env): Response {
+export function errorResponse(error: unknown, env: Env): Response {
   if (error instanceof AuthorizationError) {
     if (error.redirectTo) return Response.redirect(error.redirectTo, 302);
     return Response.json({ error: error.code, message: error.description }, { status: 400 });
@@ -110,7 +117,7 @@ function errorResponse(error: unknown, env: Env): Response {
   );
 }
 
-function headers(response: Response): Response {
+export function headers(response: Response): Response {
   const result = new Response(response.body, response);
   result.headers.set('X-Content-Type-Options', 'nosniff');
   result.headers.set('Referrer-Policy', 'no-referrer');
@@ -131,31 +138,33 @@ export default {
         return headers(Response.json({ error: 'wrong_origin' }, { status: 421 }));
       const bounded = await boundedRequest(request);
       if (new URL(request.url).pathname === '/oauth/register')
-        await rateLimit(env, `dcr:${request.headers.get('CF-Connecting-IP') ?? 'local'}`, 30, 3600);
+        await rateLimit(env, `dcr:${request.headers.get('X-Forwarded-For') ?? 'local'}`, 30, 3600);
       return headers(await provider(env, app).fetch(bounded, env as HubBindings, ctx));
     } catch (error) {
       return headers(errorResponse(error, env));
     }
   },
-  async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    const at = nowSeconds(),
-      connection = db(env);
-    await connection.batch([
-      connection
-        .prepare(
-          "UPDATE conversations SET status='expired',closed_at=COALESCE(deadline,expires_at),close_reason='deadline_reached' WHERE status NOT IN ('closed','expired','revoked') AND (expires_at<=? OR (deadline IS NOT NULL AND deadline<=?))",
-        )
-        .bind(at, at),
-      connection
-        .prepare(
-          "UPDATE pairings SET status='expired' WHERE status IN ('invited','confirming','awaiting_endpoints') AND expires_at<=?",
-        )
-        .bind(at),
-      connection.prepare('DELETE FROM auth_challenges WHERE expires_at<=?').bind(at),
-      connection.prepare('DELETE FROM browser_sessions WHERE expires_at<=?').bind(at),
-      connection.prepare('DELETE FROM rate_limits WHERE expires_at<=?').bind(at),
-    ]);
-    // Actual native task state is never invented by this cleanup job.
-    await provider(env, app).purgeExpiredData(env as HubBindings, { batchSize: 100 });
-  },
 } satisfies ExportedHandler<Env>;
+
+export async function cleanup(env: Env): Promise<void> {
+  const at = nowSeconds(),
+    connection = db(env);
+  await connection.batch([
+    connection
+      .prepare(
+        "UPDATE conversations SET status='expired',closed_at=COALESCE(deadline,expires_at),close_reason='deadline_reached' WHERE status NOT IN ('closed','expired','revoked') AND (expires_at<=? OR (deadline IS NOT NULL AND deadline<=?))",
+      )
+      .bind(at, at),
+    connection
+      .prepare(
+        "UPDATE pairings SET status='expired' WHERE status IN ('invited','confirming','awaiting_endpoints') AND expires_at<=?",
+      )
+      .bind(at),
+    connection.prepare('DELETE FROM auth_challenges WHERE expires_at<=?').bind(at),
+    connection.prepare('DELETE FROM browser_sessions WHERE expires_at<=?').bind(at),
+    connection.prepare('DELETE FROM rate_limits WHERE expires_at<=?').bind(at),
+    connection.prepare('DELETE FROM oauth_records WHERE expires_at<=?').bind(at),
+  ]);
+  // Actual native task state is never invented by this cleanup job.
+  await provider(env, app).purgeExpiredData(env as HubBindings, { batchSize: 100 });
+}

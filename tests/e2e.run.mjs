@@ -4,8 +4,10 @@ import { existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { readD1Migrations } from '@cloudflare/vitest-plugin';
+import { createClient } from '@libsql/client';
+import { createRuntime } from '../.output/runtime.mjs';
+import { Connection } from '../src/server/storage.ts';
+import { migrate } from '../scripts/migrations.mjs';
 import { Browser, authenticator } from './support/passkey-device.ts';
 import { base64url, randomToken, signPayload, fingerprint } from '../src/shared/crypto.ts';
 
@@ -17,28 +19,14 @@ const temporary = await mkdtemp(join(tmpdir(), 'agent-hub-e2e-'));
 const python =
   process.env.AGENT_HUB_PYTHON ??
   (existsSync(join(root, '.venv/bin/python')) ? join(root, '.venv/bin/python') : 'python3');
-const bundleRoot = join(root, '.output/worker');
-const moduleFiles = ['index.js', ...(await readdir(bundleRoot)).filter((f) => f.endsWith('.py'))];
-const modules = await Promise.all(
-  moduleFiles.map(async (file) => ({
-    type: file.endsWith('.py') ? 'Text' : 'ESModule',
-    path: join(bundleRoot, file),
-    contents: await readFile(join(bundleRoot, file), 'utf8'),
-  })),
+const client = createClient({ url: `file:${join(temporary, 'test.db')}` });
+const runtime = createRuntime(
+  client,
+  { APP_ENV: 'test', PUBLIC_ORIGIN: base, SIGNUP_MODE: 'open' },
+  { fetch: async () => new Response('API test', { status: 404 }) },
 );
-const mf = new Miniflare(
-  convertV4MiniflareOptions({
-    name: 'agent-hub-e2e',
-    modules,
-    modulesRoot: bundleRoot,
-    compatibilityDate: '2026-10-28',
-    compatibilityFlags: ['nodejs_compat', 'global_fetch_strictly_public'],
-    d1Databases: ['DB'],
-    kvNamespaces: ['OAUTH_KV'],
-    bindings: { APP_ENV: 'test', PUBLIC_ORIGIN: base, SIGNUP_MODE: 'open' },
-    serviceBindings: { ASSETS: () => new Response('API test', { status: 404 }) },
-  }),
-);
+const database = new Connection(client);
+const dispatch = runtime.fetch;
 
 function endpoint(state, command, input, expectFailure = false) {
   const output = spawnSync(
@@ -58,7 +46,7 @@ async function json(response, expected = 200) {
   return response.json();
 }
 async function ownerAccount(name) {
-  const browser = new Browser((input, init) => mf.dispatchFetch(input, init)),
+  const browser = new Browser((input, init) => dispatch(input, init)),
     device = await authenticator();
   const signing = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
   const publicKey = base64url(
@@ -82,7 +70,7 @@ async function ownerAccount(name) {
 }
 async function get(owner, path) {
   return json(
-    await mf.dispatchFetch(base + path, {
+    await dispatch(base + path, {
       headers: { Cookie: [...owner.browser.cookies].map(([k, v]) => `${k}=${v}`).join('; ') },
     }),
   );
@@ -92,7 +80,7 @@ async function post(owner, path, body, expected = 200) {
 }
 async function oauth(owner, agent) {
   const registered = await json(
-    await mf.dispatchFetch(`${base}/oauth/register`, {
+    await dispatch(`${base}/oauth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -120,7 +108,7 @@ async function oauth(owner, agent) {
     state: randomToken(),
   });
   const cookie = [...owner.browser.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
-  const page = await mf.dispatchFetch(`${base}/authorize?${params}`, {
+  const page = await dispatch(`${base}/authorize?${params}`, {
     headers: { Cookie: cookie },
     redirect: 'manual',
   });
@@ -141,7 +129,7 @@ async function oauth(owner, agent) {
     label: agent.label,
   });
   for (const scope of ['agent:read', 'agent:enroll', 'agent:message']) form.append('scope', scope);
-  const approved = await mf.dispatchFetch(`${base}/authorize`, {
+  const approved = await dispatch(`${base}/authorize`, {
     method: 'POST',
     headers: {
       Origin: base,
@@ -155,7 +143,7 @@ async function oauth(owner, agent) {
   const location = new URL(approved.headers.get('Location'));
   assert.equal(location.searchParams.get('iss'), base);
   return json(
-    await mf.dispatchFetch(`${base}/oauth/token`, {
+    await dispatch(`${base}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -171,7 +159,7 @@ async function oauth(owner, agent) {
 }
 async function tool(client, name, args = {}) {
   const body = await json(
-    await mf.dispatchFetch(resource, {
+    await dispatch(resource, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${client.access_token}`,
@@ -226,9 +214,12 @@ async function enroll(owner, platform) {
 }
 
 try {
-  const database = await mf.getD1Database('DB'),
-    migrations = await readD1Migrations(join(root, 'migrations'));
-  await database.batch(migrations.flatMap((m) => m.queries.map((q) => database.prepare(q))));
+  await migrate(client);
+  const blockedCimd = await dispatch(
+    `${base}/authorize?${new URLSearchParams({ client_id: 'https://169.254.169.254/client.json', redirect_uri: callback, response_type: 'code', resource })}`,
+  );
+  assert.equal(blockedCimd.status, 400);
+  assert.equal((await blockedCimd.json()).error, 'client_metadata_unavailable');
   const alice = await ownerAccount('测试主人甲'),
     bob = await ownerAccount('测试主人乙');
   // Handles are ASCII; names intentionally exercise UTF-8 in signed certificates.
@@ -392,16 +383,18 @@ try {
       proof: cleanup.proof,
     });
   }
-  const unrelated = await mf.dispatchFetch(`${base}/api/agents/${a.agent.id}`, {
+  const unrelated = await dispatch(`${base}/api/agents/${a.agent.id}`, {
     headers: { Cookie: [...bob.browser.cookies].map(([k, v]) => `${k}=${v}`).join('; ') },
   });
   assert.equal(unrelated.status, 404);
   const report = {
     result: 'passed',
+    runtime: 'Node.js + libSQL (Vercel target)',
     checked_at: new Date().toISOString(),
     independent_owner_identities: 2,
     passkey_registration_verified: true,
     oauth: 'DCR + owner consent + S256 PKCE',
+    node_cimd_public_network_guard: 'passed',
     owner_claims: 2,
     pairing_owner_signatures: 2,
     pairing_endpoint_confirmations: 2,
@@ -420,6 +413,6 @@ try {
   await writeFile(join(root, '.output/e2e-report.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
 } finally {
-  await mf.dispose();
+  client.close();
   await rm(temporary, { recursive: true, force: true });
 }

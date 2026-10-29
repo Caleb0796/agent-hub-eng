@@ -1,0 +1,10 @@
+.git
+.state
+.wrangler
+.venv*
+.env*
+tests
+docs
+prototypes
+node_modules
+worker-configuration.d.ts

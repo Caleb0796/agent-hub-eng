@@ -17,7 +17,7 @@ An owner-controlled bridge between existing personal agents. Initial targets: **
 
 ## Evidence and current limits
 
-- [MVP protocol verification](docs/evidence/mvp-e2e.json): two isolated owner identities, actual passkey validation and OAuth, four real encrypted messages, matching native package digests. These are synthetic authenticators and protocol clients, **not a claim of live Dot/Muse UI compatibility**.
+- [MVP protocol verification](docs/evidence/mvp-e2e-vercel.json): two isolated owner identities, actual passkey validation and OAuth, four real encrypted messages, matching native package digests. These are synthetic authenticators and protocol clients, **not a claim of live Dot/Muse UI compatibility**.
 - [Implementation and acceptance status](docs/IMPLEMENTATION.md)
 - [Security boundaries](SECURITY.md)
 - [PRD and MVP plan](docs/PRD.md)
@@ -34,17 +34,19 @@ Requires Node 22.12+ (Node 24 in CI) and Python 3.12+. No OpenAI/Meta model API 
 npm ci
 python3 -m venv .venv
 .venv/bin/python -m pip install -r endpoint/requirements.txt
-npm run db:local
+cp .env.example .env.local
+mkdir -p .state
+npm run db:migrate
 npm run dev
 ```
 
-Open `http://localhost:8789`. Local data stays under ignored `.wrangler/`. The development configuration permits local sign-up; a hosted pilot must use invite-only registration and its exact HTTPS origin.
+Open `http://localhost:8789`. Local SQLite data stays under ignored `.state/`. Hosted state uses Turso, never a Vercel function filesystem. The development configuration permits local sign-up; a hosted pilot must use invite-only registration and its exact HTTPS origin.
 
 ```sh
 npm run check
 ```
 
-This checks generated Worker types, TypeScript, Worker/HTTP tests, Python endpoint tests, the UI/Worker build and the two-owner protocol E2E flow. The E2E flow uses temporary databases and endpoint directories, destroys them on completion, and writes a non-secret report to `.output/e2e-report.json`.
+This checks TypeScript, Node/HTTP/storage tests, Python endpoint tests, the UI/Node server build and the two-owner protocol E2E flow. The E2E flow uses temporary databases and endpoint directories, destroys them on completion, and writes a non-secret report to `.output/e2e-report.json`.
 
 ## End-user flow
 
@@ -59,19 +61,21 @@ The product guides the native agent through configuration. Official connector in
 
 ## Layout
 
-| Path | Purpose |
-|---|---|
-| `src/worker/` | Hono API, passkeys, OAuth, ownership, pairing, grants and mailbox |
-| `src/shared/` | Canonical signing format and strict public schemas |
-| `src/web/` | Owner UI and non-extractable browser approval keys |
-| `endpoint/` | Native-runtime cryptographic endpoint; no network or model client |
-| `migrations/` | D1 schema, transactional message guards and audit records |
-| `tests/` | Worker, OAuth, passkey and cross-language E2E verification |
-| `docs/` | PRD, research, architecture and evidence |
-| `prototypes/` | Preserved experiments; not the deployed MVP |
+| Path          | Purpose                                                           |
+| ------------- | ----------------------------------------------------------------- |
+| `src/server/` | Hono API, passkeys, OAuth, ownership, pairing, grants and mailbox |
+| `src/shared/` | Canonical signing format and strict public schemas                |
+| `src/web/`    | Owner UI and non-extractable browser approval keys                |
+| `endpoint/`   | Native-runtime cryptographic endpoint; no network or model client |
+| `migrations/` | SQLite schema, transactional message guards and audit records     |
+| `tests/`      | Worker, OAuth, passkey and cross-language E2E verification        |
+| `docs/`       | PRD, research, architecture and evidence                          |
+| `prototypes/` | Preserved experiments; not the deployed MVP                       |
 
 ## Hosting
 
-The deployment target is Cloudflare Workers with D1 and an OAuth KV namespace. The checked-in resource IDs are **local placeholders**, not production resources. Do not deploy the development configuration as a hosted pilot. See [deployment notes](docs/DEPLOYMENT.md).
+The deployment target is **Vercel Functions + Turso (libSQL)** on one fixed HTTPS origin. OAuth state is stored in the same durable database with expiry checks. No Cloudflare account, Worker, D1 database or KV namespace is required. Hosted startup requires a remote database and invite-only registration. See [deployment notes](docs/DEPLOYMENT.md).
+
+The pinned, MIT-licensed `@cloudflare/workers-oauth-provider` library is retained as portable source, with a narrow Node runtime adapter and DNS/socket-level public-network restrictions. This is a library dependency, not Cloudflare hosting; its upstream upgrade and Node compatibility must be reviewed together.
 
 Private keys, access tokens, cookies, `.dev.vars`, runtime databases, endpoint state, dependency directories and raw browser screenshots from earlier experiments are excluded from Git. Research evidence contains only approved synthetic transcripts, ciphertext, public keys, hashes and scoped status records.

@@ -1,0 +1,11 @@
+{
+  "result": "passed",
+  "checked_at": "2026-10-29T05:02:33.628Z",
+  "adapter": "actual api/index.mjs Node request listener",
+  "ui_and_assets": true,
+  "security_headers": true,
+  "unauthenticated_owner_rejected": true,
+  "invite_gate": true,
+  "cron_authentication": true,
+  "live_vercel_deployment": false
+}

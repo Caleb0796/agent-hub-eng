@@ -21,7 +21,7 @@ import {
   Activity,
   LayoutGrid,
 } from 'lucide-react';
-import type { Hub, AgentRow } from '../worker/hub';
+import type { Hub, AgentRow } from '../server/hub';
 import type { Participant } from '../shared/protocol';
 import { fingerprint, safetyCode } from '../shared/crypto';
 import { api, ApiError, navigate } from './api';

@@ -153,7 +153,7 @@ router.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
   if (c.req.method !== 'GET') {
     requireBrowserOrigin(c);
-    await rateLimit(c.env, `auth:${c.req.header('CF-Connecting-IP') ?? 'local'}`, 30);
+    await rateLimit(c.env, `auth:${c.req.header('X-Forwarded-For') ?? 'local'}`, 30);
   }
   await next();
 });

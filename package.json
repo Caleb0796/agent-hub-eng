@@ -7,43 +7,47 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "npm run build:ui && wrangler dev --local --port 8789",
+    "dev": "npm run build && node --env-file=.env.local scripts/dev.mjs",
     "build:ui": "vite build",
-    "build": "npm run build:ui && wrangler deploy --dry-run --outdir .output/worker",
-    "typecheck": "wrangler types --strict-vars=false && tsc --noEmit",
+    "build": "npm run build:ui && npm run build:server",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:local": "wrangler d1 migrations apply DB --local",
-    "check": "npm run typecheck && npm test && npm run test:endpoint && npm run build && npm run test:e2e:run && npm run check:secrets",
+    "check": "npm run typecheck && npm test && npm run test:endpoint && npm run build && npm run test:e2e:run && npm run test:http && npm run check:secrets",
     "test:endpoint": "node scripts/test-endpoint.mjs",
-    "test:e2e:run": "tsx tests/e2e.run.mjs",
+    "test:e2e:run": "node --import tsx tests/e2e.run.mjs",
     "test:e2e": "npm run build && npm run test:e2e:run",
     "check:secrets": "node scripts/check-secrets.mjs",
-    "format": "prettier --write src tests scripts migrations public *.ts *.jsonc .github/workflows"
+    "format": "prettier --write src tests scripts migrations public api *.ts *.json .github/workflows",
+    "build:server": "node scripts/build-server.mjs",
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "test:http": "node scripts/test-http.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "1.2.4",
+    "@hono/node-server": "2.1.5",
+    "@libsql/client": "0.18.0",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.0.3",
     "hono": "4.13.14",
+    "ipaddr.js": "2.5.0",
     "lucide-react": "1.63.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "undici": "8.12.3",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.10",
     "@cloudflare/workers-types": "5.20261029.1",
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
-    "miniflare": "5.20261023.2-beta",
+    "esbuild": "0.28.2",
     "prettier": "3.9.10",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "8.3.5",
-    "vitest": "4.1.12",
-    "wrangler": "4.155.0"
+    "vitest": "4.1.12"
   }
 }

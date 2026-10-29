@@ -187,7 +187,7 @@ export class Mailbox {
       AND c.status IN ('ready','active','closed','expired') AND c.close_reason IS NOT 'owner-ended' AND c.close_reason IS NOT 'owner-declined' AND c.close_reason IS NOT 'agent-ended'
       AND c.approval_a_json IS NOT NULL AND c.approval_b_json IS NOT NULL
       AND ? < MIN(c.expires_at+300,COALESCE(c.deadline+300,c.expires_at+300)))`;
-    const results = await this.hub.connection.batch([
+    const results = await this.hub.connection.batch<MessageRow>([
       this.hub.connection
         .prepare(
           `UPDATE conversations SET started_at=?,deadline=MIN(?+duration_seconds,expires_at),status='active'

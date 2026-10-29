@@ -17,3 +17,5 @@ endpoint-secret.json
 connection-tokens.json
 *-private-key.*
 .DS_Store
+
+.vercel/
