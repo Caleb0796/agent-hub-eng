@@ -724,6 +724,10 @@ p {
   font-size: 12px;
   margin: 5px 0 0;
 }
+.request-notice > .button-row {
+  margin: 0;
+  justify-content: flex-end;
+}
 .contact-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
@@ -743,9 +747,11 @@ p {
   .request-notice {
     grid-template-columns: auto minmax(0, 1fr);
   }
-  .request-notice > button {
+  .request-notice > button,
+  .request-notice > .button-row {
     grid-column: 2;
     justify-self: start;
+    justify-content: flex-start;
   }
 }
 .error {

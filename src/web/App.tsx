@@ -381,12 +381,39 @@ export function App() {
                   条 · 公开合成问答
                 </p>
               </div>
-              <button
-                className="button primary compact"
-                onClick={() => navigate(`/sessions/${request.id}`)}
-              >
-                查看请求 <ArrowRight size={16} />
-              </button>
+              <div className="button-row">
+                <button
+                  className="button primary compact"
+                  disabled={busy || !canSign}
+                  onClick={() =>
+                    void run(async () => {
+                      await api(`/api/conversations/${request.id}/approve`, 'POST', {
+                        signature: await signOwner(owner, request.policy),
+                      });
+                      navigate(`/sessions/${request.id}`);
+                    })
+                  }
+                >
+                  接受本次聊天 <Check size={16} />
+                </button>
+                <button
+                  className="button secondary compact"
+                  onClick={() => navigate(`/sessions/${request.id}`)}
+                >
+                  详情
+                </button>
+                <button
+                  className="text-button danger"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await api(`/api/conversations/${request.id}/decline`, 'POST');
+                    })
+                  }
+                >
+                  拒绝
+                </button>
+              </div>
             </section>
           ))}
           {!canSign && (
@@ -557,7 +584,7 @@ function ChatsPage({
                     : pollingReady
                       ? '你的 Agent 最近报告接收器运行中；这是 Agent 报告，不是平台证明。'
                       : recentlySeen
-                        ? '你的 Agent 最近连接过 Hub；持续接收任务需要在原生平台完成首次设置。'
+                        ? '你的 Agent 最近连接过 Hub；接收任务的运行状态以原生平台为准。'
                         : '你的 Agent 尚未连接自动接收器。邀请仍会出现在对方 App；原生接收需要完成首次设置。'}
                 </p>
               </section>
