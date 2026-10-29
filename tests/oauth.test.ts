@@ -7,12 +7,13 @@ import { scopes } from '../src/shared/protocol';
 const base = 'http://localhost:8789',
   resource = `${base}/mcp`,
   callback = 'http://localhost:45678/callback';
-async function authorize() {
+async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) {
+  const callback = redirect;
   const u = await seedOwner('OAuthOwner');
   const create = await server.fetch(`${base}/api/agents`, {
     method: 'POST',
     headers: ownerHeaders(u),
-    body: JSON.stringify({ platform: 'dot', label: 'Native Dot' }),
+    body: JSON.stringify({ platform, label: 'Native ' + platform }),
   });
   const agent = await create.json<{ id: string }>();
   expect(create.status).toBe(201);
@@ -52,7 +53,11 @@ async function authorize() {
     handle = /name="handle" value="([^"]+)"/.exec(html)?.[1];
   expect(handle).toBeTruthy();
   expect(html).toContain('客户端名称由申请方提供');
-  expect(html).toContain('localhost');
+  expect(html).toContain(new URL(callback).hostname);
+  if (platform === 'muse') {
+    expect(html).toContain('<option value="muse">');
+    expect(html).not.toContain('<option value="dot">');
+  }
   const cookies = page.headers
     .getSetCookie()
     .map((c) => c.split(';')[0])
@@ -62,8 +67,8 @@ async function authorize() {
     csrf: u.csrf,
     decision: 'approve',
     agentId: agent.id,
-    platform: 'dot',
-    label: 'Native Dot',
+    platform,
+    label: 'Native ' + platform,
   });
   for (const scope of Object.values(scopes)) form.append('scope', scope);
   const consent = await server.fetch(`${base}/authorize`, {
@@ -101,6 +106,36 @@ async function authorize() {
 }
 
 describe('native OAuth without copying API keys', () => {
+  it('completes consent and PKCE with the native Muse callback and Muse-only choices', async () => {
+    const flow = await authorize('muse', 'https://agent.meta.ai/api/hatch/oauth/callback');
+    expect((await flow.exchange()).status).toBe(200);
+  });
+
+  it('accepts the observed native Muse callback and rejects neighboring Meta destinations', async () => {
+    const callback = 'https://agent.meta.ai/api/hatch/oauth/callback';
+    const register = (redirect: string) =>
+      server.fetch(`${base}/oauth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: 'Muse callback compatibility',
+          redirect_uris: [redirect],
+          token_endpoint_auth_method: 'client_secret_basic',
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+        }),
+      });
+    expect((await register(callback)).status).toBe(201);
+    for (const redirect of [
+      callback + '/other',
+      callback + '?next=https://attacker.example',
+      callback.replace('https:', 'http:'),
+      callback.replace('agent.meta.ai', 'agent.meta.ai.attacker.example'),
+      callback.replace('agent.meta.ai', 'other.meta.ai'),
+      callback.replace('agent.meta.ai', 'agent.meta.ai:8443'),
+    ])
+      expect((await register(redirect)).status, redirect).toBe(400);
+  });
   it('publishes protected-resource discovery and S256 support', async () => {
     const unauth = await server.fetch(resource, {
       method: 'POST',

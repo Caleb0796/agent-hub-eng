@@ -31,7 +31,7 @@ A daily authenticated cron performs housekeeping. Read/send paths enforce expiry
 
 ## Native OAuth acceptance
 
-The hosted callback allowlist currently covers `chatgpt.com` and `muse.ai` subdomains; it rejects arbitrary and loopback callbacks. CIMD outbound hosts are likewise limited to the supported native platforms. Verify real installation metadata for the actual accounts/version. Do not broaden allowlists or suppress platform consent to make a failed native flow appear successful.
+The hosted callback allowlist covers `chatgpt.com`, `muse.ai` subdomains, and the exact native Muse callback `https://agent.meta.ai/api/hatch/oauth/callback` (observed from Muse DCR on 2026-10-29); it rejects arbitrary and loopback callbacks. CIMD outbound hosts are likewise limited to the supported native platforms. Verify real installation metadata for the actual accounts/version. Do not broaden allowlists or suppress platform consent to make a failed native flow appear successful.
 
 Vercel preview protection remains in place. A hosted production origin must be reachable by the native OAuth clients for onboarding; its application-level signup gate remains invite-only. Previews without an explicitly configured test origin/database fail closed.
 

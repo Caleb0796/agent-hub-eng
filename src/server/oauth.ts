@@ -23,10 +23,15 @@ import {
 import { Hub, type AgentRow } from './hub';
 import { agentTokenPropsSchema, handleMcp, type AgentTokenProps } from './mcp';
 
+// Observed from Muse's native DCR flow on 2026-10-29. Keep this callback exact;
+// other Meta domains, paths, ports and query strings are not enrollment targets.
+const museNativeCallback = 'https://agent.meta.ai/api/hatch/oauth/callback';
+
 export function permittedRedirect(uri: string, env: Env): boolean {
   try {
     const url = new URL(uri);
     if (url.username || url.password || url.hash) return false;
+    if (uri === museNativeCallback) return true;
     if (
       env.APP_ENV !== 'production' &&
       url.protocol === 'http:' &&
@@ -44,6 +49,7 @@ export function permittedRedirect(uri: string, env: Env): boolean {
   }
 }
 function clientPlatform(uri: string): Platform | undefined {
+  if (uri === museNativeCallback) return 'muse';
   const host = new URL(uri).hostname;
   return host === 'chatgpt.com'
     ? 'dot'
@@ -209,19 +215,7 @@ export function provider(
         return {
           code: 'invalid_redirect_uri',
           description:
-            'Unsupported OAuth callback. Rejected origin/path: ' +
-            (Array.isArray(redirects) ? redirects : [])
-              .slice(0, 8)
-              .map((value) => {
-                try {
-                  const url = new URL(String(value));
-                  return url.origin + url.pathname;
-                } catch {
-                  return '[invalid URI]';
-                }
-              })
-              .join(', ')
-              .slice(0, 1000),
+            'This alpha only supports verified Dot/Muse callbacks (and loopback in local development).',
         };
     },
     tokenExchangeCallback: async (options) => {
