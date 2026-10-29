@@ -49,6 +49,7 @@ async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) 
     redirect: 'manual',
   });
   expect(page.status).toBe(200);
+  expect(page.headers.get('Referrer-Policy')).toBe('origin');
   const html = await page.text(),
     handle = /name="handle" value="([^"]+)"/.exec(html)?.[1];
   expect(handle).toBeTruthy();
@@ -71,6 +72,16 @@ async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) 
     label: 'Native ' + platform,
   });
   for (const scope of Object.values(scopes)) form.append('scope', scope);
+  const nullOrigin = await server.fetch(`${base}/authorize`, {
+    method: 'POST',
+    headers: {
+      Origin: 'null',
+      Cookie: `${ownerHeaders(u).Cookie}; ${cookies}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: form,
+  });
+  expect(nullOrigin.status).toBe(403);
   const consent = await server.fetch(`${base}/authorize`, {
     method: 'POST',
     headers: {

@@ -120,7 +120,7 @@ export function errorResponse(error: unknown, env: Env): Response {
 export function headers(response: Response): Response {
   const result = new Response(response.body, response);
   result.headers.set('X-Content-Type-Options', 'nosniff');
-  result.headers.set('Referrer-Policy', 'no-referrer');
+  if (!result.headers.has('Referrer-Policy')) result.headers.set('Referrer-Policy', 'no-referrer');
   result.headers.set('X-Frame-Options', 'DENY');
   result.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   result.headers.set(

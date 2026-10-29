@@ -114,6 +114,9 @@ oauthRoutes.get('/authorize', async (c) => {
     <div class="actions"><button name="decision" value="deny" class="secondary">拒绝</button><button name="decision" value="approve">同意并连接</button></div></form></main></body></html>`;
   transaction.headers.set('Content-Type', 'text/html; charset=utf-8');
   transaction.headers.set('Cache-Control', 'no-store');
+  // Native form POSTs under no-referrer can carry Origin:null. Send only the
+  // origin as referrer so the browser preserves Origin for our strict CSRF check.
+  transaction.headers.set('Referrer-Policy', 'origin');
   return new Response(html, { headers: transaction.headers });
 });
 
