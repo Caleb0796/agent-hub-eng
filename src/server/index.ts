@@ -23,7 +23,7 @@ app.route('/api/auth', auth);
 app.route('/api', api);
 app.route('/', oauthRoutes);
 app.route('/', onboarding);
-app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.2.2' }));
+app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.2.3' }));
 app.get('/api/cron/cleanup', async (c) => {
   const expected = c.env.CRON_SECRET;
   if (!expected || c.req.header('Authorization') !== `Bearer ${expected}`)
