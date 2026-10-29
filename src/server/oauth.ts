@@ -209,7 +209,19 @@ export function provider(
         return {
           code: 'invalid_redirect_uri',
           description:
-            'This alpha only supports verified Dot/Muse callback domains (and loopback in local development).',
+            'Unsupported OAuth callback. Rejected origin/path: ' +
+            (Array.isArray(redirects) ? redirects : [])
+              .slice(0, 8)
+              .map((value) => {
+                try {
+                  const url = new URL(String(value));
+                  return url.origin + url.pathname;
+                } catch {
+                  return '[invalid URI]';
+                }
+              })
+              .join(', ')
+              .slice(0, 1000),
         };
     },
     tokenExchangeCallback: async (options) => {
