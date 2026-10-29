@@ -51,9 +51,8 @@ async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) 
   expect(page.status).toBe(200);
   expect(page.headers.get('Referrer-Policy')).toBe('origin');
   const csp = page.headers.get('Content-Security-Policy');
-  expect(csp).toContain(
-    `form-action 'self' ${new URL(callback).origin}${new URL(callback).pathname}`,
-  );
+  expect(csp).toContain("form-action 'self'");
+  expect(csp).not.toContain(new URL(callback).origin);
   expect(csp).toContain("script-src 'self'");
   expect(csp).toContain("frame-ancestors 'none'");
   const html = await page.text(),
@@ -91,6 +90,7 @@ async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) 
   const consent = await server.fetch(`${base}/authorize`, {
     method: 'POST',
     headers: {
+      Accept: 'application/json',
       Origin: base,
       Cookie: `${ownerHeaders(u).Cookie}; ${cookies}`,
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -98,8 +98,9 @@ async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) 
     body: form,
     redirect: 'manual',
   });
-  expect(consent.status).toBe(302);
-  const location = new URL(consent.headers.get('Location')!);
+  expect(consent.status).toBe(200);
+  expect(consent.headers.has('Location')).toBe(false);
+  const location = new URL((await consent.json<{ redirectTo: string }>()).redirectTo);
   expect(location.origin).toBe(new URL(callback).origin);
   expect(location.searchParams.get('iss')).toBe(base);
   expect(location.searchParams.get('state')).toBe(params.get('state'));
