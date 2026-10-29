@@ -50,6 +50,12 @@ async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) 
   });
   expect(page.status).toBe(200);
   expect(page.headers.get('Referrer-Policy')).toBe('origin');
+  const csp = page.headers.get('Content-Security-Policy');
+  expect(csp).toContain(
+    `form-action 'self' ${new URL(callback).origin}${new URL(callback).pathname}`,
+  );
+  expect(csp).toContain("script-src 'self'");
+  expect(csp).toContain("frame-ancestors 'none'");
   const html = await page.text(),
     handle = /name="handle" value="([^"]+)"/.exec(html)?.[1];
   expect(handle).toBeTruthy();

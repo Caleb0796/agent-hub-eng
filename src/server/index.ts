@@ -15,6 +15,7 @@ import {
 import { Hub } from './hub';
 import { idSchema, signatureSchema } from '../shared/protocol';
 import onboarding from './onboarding';
+import { defaultCsp } from './security';
 
 const app = new Hono<{ Bindings: HubBindings }>();
 app.route('/api/auth', auth);
@@ -123,10 +124,8 @@ export function headers(response: Response): Response {
   if (!result.headers.has('Referrer-Policy')) result.headers.set('Referrer-Policy', 'no-referrer');
   result.headers.set('X-Frame-Options', 'DENY');
   result.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  result.headers.set(
-    'Content-Security-Policy',
-    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-  );
+  if (!result.headers.has('Content-Security-Policy'))
+    result.headers.set('Content-Security-Policy', defaultCsp);
   if (!result.headers.has('Cache-Control')) result.headers.set('Cache-Control', 'no-store');
   return result;
 }

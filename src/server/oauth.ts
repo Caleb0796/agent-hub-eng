@@ -22,6 +22,7 @@ import {
 } from './common';
 import { Hub, type AgentRow } from './hub';
 import { agentTokenPropsSchema, handleMcp, type AgentTokenProps } from './mcp';
+import { consentCsp } from './security';
 
 // Observed from Muse's native DCR flow on 2026-10-29. Keep this callback exact;
 // other Meta domains, paths, ports and query strings are not enrollment targets.
@@ -117,6 +118,7 @@ oauthRoutes.get('/authorize', async (c) => {
   // Native form POSTs under no-referrer can carry Origin:null. Send only the
   // origin as referrer so the browser preserves Origin for our strict CSRF check.
   transaction.headers.set('Referrer-Policy', 'origin');
+  transaction.headers.set('Content-Security-Policy', consentCsp(parsed.redirectUri));
   return new Response(html, { headers: transaction.headers });
 });
 
