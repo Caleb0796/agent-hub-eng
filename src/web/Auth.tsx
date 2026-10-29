@@ -1,93 +1,28 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import type {
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialRequestOptionsJSON,
 } from '@simplewebauthn/browser';
 import { ArrowUpRight, Fingerprint, ShieldCheck } from 'lucide-react';
-import { api, ApiError, safeReturnPath } from './api';
-import {
-  bindOwnerKey,
-  draftOwnerKey,
-  handleOwnerKey,
-  saveHandleOwnerKey,
-  type OwnerView,
-} from './keys';
+import { api, safeReturnPath } from './api';
+import { bindOwnerKey, prepareOwnerKey, type OwnerView } from './keys';
 import { signPayload } from '../shared/crypto';
 
-type Mode = 'login' | 'register';
-type Support = 'checking' | 'ready' | 'no-webauthn' | 'no-ed25519';
-
-function passkeyError(err: unknown, mode: Mode): string {
-  const name =
-    err instanceof Error
-      ? err.name === 'Error' && err.cause instanceof Error
-        ? err.cause.name
-        : err.name
-      : '';
-  if (name === 'NotAllowedError')
-    return mode === 'login'
-      ? '没有完成通行密钥登录：已取消、超时，或这台设备上没有本站的通行密钥。还没有账号的话，请选择“创建账号”。'
-      : '通行密钥创建已取消或超时，请再点一次按钮。';
-  if (name === 'InvalidStateError') return '这台设备已为本站创建过通行密钥，请选择“已有账号”登录。';
-  if (name === 'SecurityError')
-    return '当前网址与 Agent Hub 正式地址不一致，请从邀请链接重新打开。';
-  if (err instanceof ApiError) return err.message;
-  return '未能完成，请刷新页面后重试';
-}
-
 export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
-  const params = new URLSearchParams(location.search);
-  const linkedInvite =
-    new URLSearchParams(location.hash.slice(1)).get('signupInvite') ??
-    params.get('signupInvite') ??
-    '';
-  // An invitation link always means a new owner, whichever path it was opened on.
-  const [mode, setMode] = useState<Mode>(
-      linkedInvite ? 'register' : location.pathname === '/login' ? 'login' : 'register',
+  const [mode, setMode] = useState<'login' | 'register'>(
+      location.pathname === '/login' ? 'login' : 'register',
     ),
     [handle, setHandle] = useState(''),
     [name, setName] = useState('');
-  const [invite, setInvite] = useState(linkedInvite),
-    [inviteValid, setInviteValid] = useState<boolean | undefined>(),
-    [support, setSupport] = useState<Support>('checking'),
+  const params = new URLSearchParams(location.search);
+  const [invite, setInvite] = useState(
+      new URLSearchParams(location.hash.slice(1)).get('signupInvite') ??
+        params.get('signupInvite') ??
+        '',
+    ),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
-  const draft = useRef<Awaited<ReturnType<typeof draftOwnerKey>>>(undefined);
-
-  useEffect(() => {
-    if (!window.PublicKeyCredential) {
-      setSupport('no-webauthn');
-      return;
-    }
-    draftOwnerKey().then(
-      (key) => {
-        draft.current = key;
-        setSupport('ready');
-      },
-      () => setSupport('no-ed25519'),
-    );
-  }, []);
-
-  async function checkInvite(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return setInviteValid(undefined);
-    try {
-      const { valid } = await api<{ valid: boolean }>('/api/auth/invite/check', 'POST', {
-        invite: trimmed,
-      });
-      setInviteValid(valid);
-    } catch {
-      setInviteValid(undefined);
-    }
-  }
-  useEffect(() => {
-    if (linkedInvite) void checkInvite(linkedInvite);
-  }, []);
-
-  const unsupported =
-    support === 'no-webauthn' || (mode === 'register' && support === 'no-ed25519');
-
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -96,8 +31,7 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
       let result: { owner: OwnerView };
       if (mode === 'register') {
         const normalized = handle.trim().toLowerCase(),
-          existing = await handleOwnerKey(normalized),
-          key = existing ?? draft.current ?? (await draftOwnerKey());
+          key = await prepareOwnerKey(normalized);
         const setup = await api<{
           options: PublicKeyCredentialCreationOptionsJSON;
           signingChallenge: unknown;
@@ -105,20 +39,13 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
           handle: normalized,
           name: name.trim(),
           signingKey: key.publicKey,
-          ...(invite.trim() ? { invite: invite.trim() } : {}),
+          ...(invite ? { invite } : {}),
         });
         const response = await startRegistration({ optionsJSON: setup.options });
-        if (!existing) {
-          await saveHandleOwnerKey(normalized, key);
-          draft.current = undefined;
-          void draftOwnerKey().then((next) => (draft.current = next));
-        }
         result = await api('/api/auth/register/verify', 'POST', {
           response,
           signingProof: await signPayload(key.privateKey, setup.signingChallenge),
         });
-        // The invitation is consumed; keep it out of the address bar and history.
-        history.replaceState(null, '', location.pathname + location.search);
       } else {
         const setup = await api<{ options: PublicKeyCredentialRequestOptionsJSON }>(
           '/api/auth/login/options',
@@ -135,7 +62,7 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
       }
       onLogin(result.owner);
     } catch (err) {
-      setError(passkeyError(err, mode));
+      setError(err instanceof Error ? err.message : '未能完成登录');
     } finally {
       setBusy(false);
     }
@@ -226,54 +153,19 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
                   邀请码 <span className="muted">（收到邀请时填写）</span>
                   <input
                     value={invite}
-                    onChange={(e) => {
-                      setInvite(e.target.value);
-                      setInviteValid(undefined);
-                    }}
-                    onBlur={(e) => void checkInvite(e.target.value)}
+                    onChange={(e) => setInvite(e.target.value)}
                     autoComplete="off"
                     placeholder="邀请链接会自动填入"
                   />
-                  {inviteValid === false && (
-                    <small className="error-text">
-                      这个邀请码无效、已过期或已被使用，请向邀请人索取新的链接。
-                    </small>
-                  )}
                 </label>
-                <div className="notice">
-                  <ShieldCheck size={19} />
-                  <div>
-                    <strong>授权密钥只保存在这个浏览器。</strong>
-                    <p>之后的认领、配对和会话批准都要在这个浏览器完成；换设备登录只能查看。</p>
-                  </div>
-                </div>
               </>
-            )}
-            {mode === 'login' && params.get('returnTo') && (
-              <p className="muted">
-                第一次使用？请先选择“创建账号”，注册完成后会自动回到授权页面。
-              </p>
-            )}
-            {unsupported && (
-              <div className="error" role="alert">
-                当前浏览器不支持通行密钥或所需的加密功能。请用最新版 Chrome、Safari、Edge 或 Firefox
-                直接打开此链接，不要使用 App 内置浏览器。
-              </div>
             )}
             {error && (
               <div className="error" role="alert">
                 {error}
               </div>
             )}
-            <button
-              className="button primary full"
-              disabled={
-                busy ||
-                unsupported ||
-                (mode === 'register' && (support === 'checking' || inviteValid === false))
-              }
-              type="submit"
-            >
+            <button className="button primary full" disabled={busy} type="submit">
               <Fingerprint size={19} />
               {busy
                 ? '正在等待设备确认…'
@@ -283,7 +175,9 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
               <ArrowUpRight size={18} />
             </button>
           </form>
-          <p className="fine-print">测试期间请保留这个浏览器的网站数据。跨设备恢复尚未开放。</p>
+          <p className="fine-print">
+            授权密钥会保存在这个浏览器中。测试期间请保留浏览器数据，并在同一浏览器完成认领与授权。跨设备恢复尚未开放。
+          </p>
         </div>
       </main>
     </div>

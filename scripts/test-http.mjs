@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -51,33 +50,6 @@ try {
     403,
     'hosted-style invite gate must reject signup without a valid invite',
   );
-  const created = spawnSync(process.execPath, ['scripts/create-invite.mjs', '--hours', '1'], {
-    env: { ...process.env, PUBLIC_ORIGIN: base },
-    encoding: 'utf8',
-  });
-  assert.equal(created.status, 0, created.stderr);
-  const link = created.stdout.trim().split('\n').at(-1);
-  assert.ok(link.startsWith(`${base}/#signupInvite=`));
-  const invite = new URLSearchParams(new URL(link).hash.slice(1)).get('signupInvite');
-  const post = (path, body) =>
-    fetch(`${base}${path}`, {
-      method: 'POST',
-      headers: { Origin: base, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  assert.deepEqual(await (await post('/api/auth/invite/check', { invite })).json(), {
-    valid: true,
-  });
-  assert.deepEqual(await (await post('/api/auth/invite/check', { invite: 'x' + invite })).json(), {
-    valid: false,
-  });
-  const invited = await post('/api/auth/register/options', {
-    handle: 'httpinvited',
-    name: 'HTTP invited',
-    signingKey: Buffer.alloc(32, 2).toString('base64url'),
-    invite,
-  });
-  assert.equal(invited.status, 200, 'a generated invitation must open passkey registration');
   const report = {
     result: 'passed',
     checked_at: new Date().toISOString(),
@@ -86,7 +58,6 @@ try {
     security_headers: true,
     unauthenticated_owner_rejected: true,
     invite_gate: true,
-    invite_generation: true,
     cron_authentication: true,
     live_vercel_deployment: false,
   };
