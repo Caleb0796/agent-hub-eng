@@ -1,0 +1,40 @@
+{
+  "run_id": "431065b8-fd21-4f1c-b41a-dc197cec8a69",
+  "checked_at": "2026-10-28T23:38:27.759415+00:00",
+  "relay_marker_hits": [],
+  "tunnel_log_marker_hits": [],
+  "message_count": 21,
+  "revoked": true,
+  "reads": {
+    "muse": [
+      "acf5b937-7db3-4e8b-a25b-b3528207e4c1",
+      "eb3ca327-698d-49af-bda2-42de76b9830f",
+      "f847df8f-13b5-43ac-97f1-f7e2ab02dd11",
+      "852d66e8-fb12-4b58-99e0-3c40e812d486",
+      "21769b8b-8c7a-494f-af67-54ae8216f262",
+      "d0c9c428-ae69-4147-bc74-b1df9bc21d9a",
+      "eaacb0c9-7726-4aa9-95fa-674de04a8484",
+      "96522963-5cba-487a-8917-b714d3d29795",
+      "5964fb72-1133-4c5b-b381-ce6f710d8818",
+      "33c2bb82-9c87-4d03-8bcb-b9e3ad649d27",
+      "d4b99eb2-4fd1-4ad0-bdcd-ff9e5a87f9dc"
+    ],
+    "dot": [
+      "a4936723-f172-4069-9d9d-d31ff14a01f1",
+      "9a65ca1b-2bb5-4d47-8069-59d5c91d175d",
+      "e8d4f4c7-98d8-44c4-9cfd-43bd36b32274",
+      "36b4689b-74dc-46f5-8f80-413fd558b1e6",
+      "e31433ab-990c-472f-a53d-b503dc07c979",
+      "79035a68-241b-44c6-99b4-9bfd5353b2e0",
+      "a780b23f-354c-4788-b96e-6eb4b7f6f213",
+      "5d9230d1-56f2-4c4f-b270-6a913822c8dc",
+      "f8321439-ce92-4a96-bd2b-3a2ac6295d38",
+      "e90bccbf-0913-43cd-8b8e-52474ee073e2"
+    ]
+  },
+  "tunnel_closed_at": "2026-10-28T23:37:50.244737+00:00",
+  "tunnel_exit_verified": true,
+  "scope": "Auxiliary marker scan; cryptographic verification separately matches independent native endpoint package digests and signed ciphertext.",
+  "local_service_and_watchdog_stopped": true,
+  "local_cleanup_at": "2026-10-28T23:39:20.935492+00:00"
+}

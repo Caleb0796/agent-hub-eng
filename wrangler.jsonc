@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-hub-alpha",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-28",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "rules": [{ "type": "Text", "globs": ["**/*.py"], "fallthrough": true }],
+  "assets": { "directory": "./dist", "binding": "ASSETS", "run_worker_first": true },
+  "vars": {
+    "APP_ENV": "development",
+    "PUBLIC_ORIGIN": "http://localhost:8789",
+    "SIGNUP_MODE": "open",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agent-hub-alpha",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "00000000000000000000000000000001" }],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false },
+  },
+  "triggers": { "crons": ["*/5 * * * *"] },
+}

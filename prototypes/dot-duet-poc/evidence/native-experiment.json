@@ -1,0 +1,125 @@
+{
+  "verified_at": "2026-10-28T08:08:23.836Z",
+  "run_id": "5363d343-6996-4749-b0c1-a6927187a17a",
+  "test": "Native Claude Duet asks native OpenAI Dot; Dot replies; Duet retrieves the reply",
+  "complete": true,
+  "dot": {
+    "plugin_name": "Dot Bridge PoC",
+    "plugin_connected": true,
+    "browser_account": "skywalker1226 (Pro)",
+    "native_url": "https://chatgpt.com/dots/6714c324-8086-4e87-b161-3ab6ab28143b~6ae1abc19ec48196a2344b80732c536a",
+    "initialization_authorized_by_user": true,
+    "optional_google_connection_skipped": true,
+    "identity_called": true,
+    "extra_send_confirmation_observed": false
+  },
+  "duet": {
+    "connector_name": "Duet Bridge PoC",
+    "connector_id": "9daba1aa-2467-4aa4-842f-be61ce2ce068",
+    "native_url": "https://claude.ai/duet",
+    "identity_called": true,
+    "extra_send_confirmation_observed": false
+  },
+  "status": {
+    "run_id": "5363d343-6996-4749-b0c1-a6927187a17a",
+    "created_at": "2026-10-28T07:17:42.073Z",
+    "expires_at": "2026-10-28T09:17:42.074Z",
+    "expired": false,
+    "message_count": 2,
+    "message_limit": 8,
+    "directions": {
+      "dot_asks_duet": false,
+      "duet_asks_dot": true
+    },
+    "round_trip_observed": true,
+    "both_directions_observed": false,
+    "evidence_boundary": "This verifies credential-scoped message delivery and retrieval. The human must verify which native app used each endpoint; it does not attest the model or prove unattended operation."
+  },
+  "messages": [
+    {
+      "id": "09a9bedd-7e44-45ba-a8dd-f710563e56eb",
+      "sequence": 1,
+      "from": "duet",
+      "to": "dot",
+      "text": "你好 Dot，我是 Duet。请调用你自己的 bridge_identity，告诉我本轮的随机测试码，并用 bridge_send 回复这条消息，reply_to 使用此问题的 message_id。",
+      "reply_to": null,
+      "at": "2026-10-28T07:33:45.014Z",
+      "proof_matches_sender": false
+    },
+    {
+      "id": "4e5bc33d-5d25-435d-888a-5e24125533a7",
+      "sequence": 2,
+      "from": "dot",
+      "to": "duet",
+      "text": "你好 Duet，我是 dot。已实际调用 bridge_identity，确认 your_role=dot。本轮 run_id 为 5363d343-6996-4749-b0c1-a6927187a17a，我自己的随机测试码是 DOT-C87213BE34DA。",
+      "reply_to": "09a9bedd-7e44-45ba-a8dd-f710563e56eb",
+      "at": "2026-10-28T08:03:10.915Z",
+      "proof_matches_sender": true
+    }
+  ],
+  "activity": [
+    {
+      "role": "duet",
+      "action": "client_connected",
+      "at": "2026-10-28T07:29:24.755Z",
+      "client": "Anthropic",
+      "protocol": "2025-11-25"
+    },
+    {
+      "role": "duet",
+      "action": "client_connected",
+      "at": "2026-10-28T07:30:50.852Z",
+      "client": "Anthropic",
+      "protocol": "2025-11-25"
+    },
+    {
+      "role": "duet",
+      "action": "identity",
+      "at": "2026-10-28T07:32:39.685Z"
+    },
+    {
+      "role": "duet",
+      "action": "send",
+      "at": "2026-10-28T07:33:45.014Z",
+      "message_id": "09a9bedd-7e44-45ba-a8dd-f710563e56eb"
+    },
+    {
+      "role": "dot",
+      "action": "identity",
+      "at": "2026-10-28T08:02:51.817Z"
+    },
+    {
+      "role": "dot",
+      "action": "read",
+      "at": "2026-10-28T08:02:58.604Z",
+      "message_ids": [
+        "09a9bedd-7e44-45ba-a8dd-f710563e56eb"
+      ]
+    },
+    {
+      "role": "dot",
+      "action": "send",
+      "at": "2026-10-28T08:03:10.915Z",
+      "message_id": "4e5bc33d-5d25-435d-888a-5e24125533a7"
+    },
+    {
+      "role": "duet",
+      "action": "read",
+      "at": "2026-10-28T08:04:15.169Z",
+      "message_ids": [
+        "4e5bc33d-5d25-435d-888a-5e24125533a7"
+      ]
+    }
+  ],
+  "limits": [
+    "Both native agents were prompted manually to send/read. Unattended wakeup was not tested.",
+    "Only a Duet-initiated question/answer round was required and run.",
+    "Caller role is credential-scoped; native client provenance was verified through UI, not cryptographic platform attestation.",
+    "Times include human confirmation and Dot initialization and are not latency benchmarks."
+  ],
+  "screenshots": [
+    "duet-sent.jpg",
+    "dot-replied.jpg",
+    "duet-roundtrip-confirmed.jpg"
+  ]
+}

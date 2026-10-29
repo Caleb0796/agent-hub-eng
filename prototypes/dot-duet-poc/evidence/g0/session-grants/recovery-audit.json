@@ -1,0 +1,250 @@
+{
+  "run_id": "431065b8-fd21-4f1c-b41a-dc197cec8a69",
+  "native_encrypted_conversation_verified": true,
+  "window_seconds": 600,
+  "started_at": "2026-10-28T23:24:04.774Z",
+  "deadline": "2026-10-28T23:34:04.774Z",
+  "message_count": 21,
+  "counts": {
+    "dot": 11,
+    "muse": 10
+  },
+  "all_native_digests_match": true,
+  "all_signatures_valid": true,
+  "all_wrong_key_decryptions_rejected": true,
+  "relay_private_key_and_packet_marker_scan": "passed",
+  "messages": [
+    {
+      "id": "acf5b937-7db3-4e8b-a25b-b3528207e4c1",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:24:04.774Z",
+      "ciphertext_sha256": "32ba6f5e6bda7d7f38205d0d72e5c288ed945e1bf9399c001b6fa088ef673e47",
+      "ciphertext_bytes": 754,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "a4936723-f172-4069-9d9d-d31ff14a01f1",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:25:35.789Z",
+      "ciphertext_sha256": "380b0aa4a011e354697acf7dcf7d909127b41b44e3f0825faf529ab06ae594d8",
+      "ciphertext_bytes": 741,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "eb3ca327-698d-49af-bda2-42de76b9830f",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:25:49.302Z",
+      "ciphertext_sha256": "7148d0b2d0834e366db5dffd16ec28ed71bafb9a2e95ca81ae86a67a06ad9331",
+      "ciphertext_bytes": 797,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "9a65ca1b-2bb5-4d47-8069-59d5c91d175d",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:26:25.174Z",
+      "ciphertext_sha256": "da1b73aed99f300fe5a0ded1bf55328c88036bfc19b28d8109ad4ef1c72feb67",
+      "ciphertext_bytes": 690,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "f847df8f-13b5-43ac-97f1-f7e2ab02dd11",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:26:37.358Z",
+      "ciphertext_sha256": "e3e46d88f17dd081ca527893071146332d24ed02174ce87910c10cc249eaa293",
+      "ciphertext_bytes": 691,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "e8d4f4c7-98d8-44c4-9cfd-43bd36b32274",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:27:21.168Z",
+      "ciphertext_sha256": "a3fa064c9f63089dc99f4089ba2971b6f7d878fb4b9c638e98d69e00da3ed521",
+      "ciphertext_bytes": 816,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "852d66e8-fb12-4b58-99e0-3c40e812d486",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:27:36.439Z",
+      "ciphertext_sha256": "a51ab6df641571fe6f083ed1454c815cc406dc19cc8a7a3fd94bbbecfdaa5f83",
+      "ciphertext_bytes": 767,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "36b4689b-74dc-46f5-8f80-413fd558b1e6",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:28:12.888Z",
+      "ciphertext_sha256": "87035e71ca497916da274a95c2681c6b6936ab4c8d1b4bbe4af5bf4e40f7fcd3",
+      "ciphertext_bytes": 777,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "21769b8b-8c7a-494f-af67-54ae8216f262",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:28:27.157Z",
+      "ciphertext_sha256": "d965f039bd75f2e50ac2ab68d047ab3ef56fc01a5e25504422e00cbc145db248",
+      "ciphertext_bytes": 751,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "e31433ab-990c-472f-a53d-b503dc07c979",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:29:01.310Z",
+      "ciphertext_sha256": "997b4e6b64158ea758570232dcb4e1bbf421440ae0f7122778517d8302a6a777",
+      "ciphertext_bytes": 822,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "d0c9c428-ae69-4147-bc74-b1df9bc21d9a",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:29:13.372Z",
+      "ciphertext_sha256": "731cd2fb34d1397c3277932307167df0136febe0296d8dd86822dff2e77f419a",
+      "ciphertext_bytes": 787,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "79035a68-241b-44c6-99b4-9bfd5353b2e0",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:29:53.126Z",
+      "ciphertext_sha256": "5875bfe422d6c8fdc54f88a2cee368f6c8b8d3528677f88f5abdb9327cd019d5",
+      "ciphertext_bytes": 722,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "eaacb0c9-7726-4aa9-95fa-674de04a8484",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:30:05.297Z",
+      "ciphertext_sha256": "17d4d0c5b4828c818df664efef2cac03321479b8e46d14a47e83da1b481057ac",
+      "ciphertext_bytes": 816,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "a780b23f-354c-4788-b96e-6eb4b7f6f213",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:30:44.495Z",
+      "ciphertext_sha256": "7c36667d0a3948d71d6e7060df99b3b491112708b77ed02262a89f7b5dc2b2b2",
+      "ciphertext_bytes": 686,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "96522963-5cba-487a-8917-b714d3d29795",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:31:00.476Z",
+      "ciphertext_sha256": "bd554ff7a3f849203fa6bc05404f8592bc47c8ca7d077c4d1afc3e25f5cd8629",
+      "ciphertext_bytes": 785,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "5d9230d1-56f2-4c4f-b270-6a913822c8dc",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:31:38.907Z",
+      "ciphertext_sha256": "a7535c9dea83d655d06a042ffddf855e03a18bedee3ca3fa5398f45aaf6cf9fa",
+      "ciphertext_bytes": 780,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "5964fb72-1133-4c5b-b381-ce6f710d8818",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:31:52.017Z",
+      "ciphertext_sha256": "b6fc421c201bb9e3610527ef139b2f5cd56a3ede22c12c943d941d39a1793665",
+      "ciphertext_bytes": 719,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "f8321439-ce92-4a96-bd2b-3a2ac6295d38",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:32:31.021Z",
+      "ciphertext_sha256": "786b797ad92edb762ab598d5fbb701b233d124b54dcda9f4cc69dc487c2bc1b2",
+      "ciphertext_bytes": 723,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "33c2bb82-9c87-4d03-8bcb-b9e3ad649d27",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:32:43.605Z",
+      "ciphertext_sha256": "d19aaee4969047b2723f26211c79182862290c0c40cb2afb138389dc381e0055",
+      "ciphertext_bytes": 770,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "e90bccbf-0913-43cd-8b8e-52474ee073e2",
+      "from": "muse",
+      "to": "dot",
+      "at": "2026-10-28T23:33:23.770Z",
+      "ciphertext_sha256": "203c0bfe183d0f71e9ddff6d35f119750ed05565a666a83d02ebdfcf5c35ac87",
+      "ciphertext_bytes": 679,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    },
+    {
+      "id": "d4b99eb2-4fd1-4ad0-bdcd-ff9e5a87f9dc",
+      "from": "dot",
+      "to": "muse",
+      "at": "2026-10-28T23:33:40.907Z",
+      "ciphertext_sha256": "65a4b327b701101569545a728e553ce878c3289fb5dd163864e4a29ffc53e5ef",
+      "ciphertext_bytes": 721,
+      "native_digest_match": true,
+      "signature_valid": true,
+      "wrong_key_rejected": true
+    }
+  ],
+  "limits": "Verification uses owner-visible native digest manifests and ciphertext metadata, never endpoint private keys or Q&A plaintext. Does not attest semantic answer quality, hidden provider behavior, production security, or forward secrecy."
+}

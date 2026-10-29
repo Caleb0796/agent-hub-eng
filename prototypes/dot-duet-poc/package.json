@@ -1,0 +1,21 @@
+{
+  "name": "dot-duet-bridge-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A bounded, synthetic-data experiment for communication between an existing Dot and Claude Duet.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "experiment": "node scripts/experiment.mjs",
+    "stop": "node scripts/stop.mjs",
+    "test": "node --test test/*.test.mjs",
+    "g0:start": "node g0/run.mjs",
+    "g0:test": "node --test g0/*.test.mjs test/bridge.test.mjs && .venv-g0/bin/python -m pytest g0/test_endpoint.py -q",
+    "reset": "node scripts/reset.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "^3.25.76"
+  }
+}

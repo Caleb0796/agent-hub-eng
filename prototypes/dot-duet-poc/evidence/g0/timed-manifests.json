@@ -1,0 +1,52 @@
+{
+  "dot": {
+    "role": "dot",
+    "run_id": "f04f2f79-cd95-483f-96bd-1f9649ff995d",
+    "fingerprint": "b84497fd7125503de4eab81234cee54d9ce97509f086f7bbcfee3e0a87c20653",
+    "packet_format": "json-n-t",
+    "nonce_validation_ok": true,
+    "sent": [
+      {
+        "id": "03efbe54-c98e-4997-bbcc-75dbc2dcd53b",
+        "sha256": "411ee9c15a428106bb3867a79efbbaa32aea9f91fb07c3ba52ed1e99ef9c66c7"
+      },
+      {
+        "id": "09a6c272-df3c-420f-817f-e03b5202b9b7",
+        "sha256": "67a5950e99ccc40d900af1203819c98f10c103b89fa629bf35c79871448a0b2b"
+      }
+    ],
+    "received": [
+      {
+        "id": "f44ed55e-5233-4013-9dec-75108dcb8a35",
+        "sha256": "746d0d71ae8a14a9dfd21f719b7eb998a80b8c89a183c2e0204125d755b0200c"
+      }
+    ],
+    "stop_reason": "conversation_deadline_reached",
+    "stopped_at": "2026-10-28T20:29:27.676Z"
+  },
+  "muse": {
+    "role": "muse",
+    "run_id": "f04f2f79-cd95-483f-96bd-1f9649ff995d",
+    "fingerprint": "bd14d91be6827626fc1769640ec9c4b61d254666d50155d5e308b53f48418637",
+    "packet_format": "json-n-t",
+    "nonce_validation_ok": true,
+    "sent": [
+      {
+        "id": "f44ed55e-5233-4013-9dec-75108dcb8a35",
+        "sha256": "746d0d71ae8a14a9dfd21f719b7eb998a80b8c89a183c2e0204125d755b0200c"
+      }
+    ],
+    "received": [
+      {
+        "id": "03efbe54-c98e-4997-bbcc-75dbc2dcd53b",
+        "sha256": "411ee9c15a428106bb3867a79efbbaa32aea9f91fb07c3ba52ed1e99ef9c66c7"
+      },
+      {
+        "id": "09a6c272-df3c-420f-817f-e03b5202b9b7",
+        "sha256": "67a5950e99ccc40d900af1203819c98f10c103b89fa629bf35c79871448a0b2b"
+      }
+    ],
+    "stop_reason": "deadline_reached",
+    "stopped_at": "2026-10-28T20:32:42Z"
+  }
+}

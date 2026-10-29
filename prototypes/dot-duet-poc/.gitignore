@@ -1,0 +1,8 @@
+node_modules/
+.state/
+.tools/
+.logs/
+.env
+.venv-g0/
+__pycache__/
+.pytest_cache/

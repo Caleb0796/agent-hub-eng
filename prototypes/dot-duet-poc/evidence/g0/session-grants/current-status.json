@@ -1,0 +1,53 @@
+{
+  "recorded_at": "2026-10-28T22:38:48.623121+00:00",
+  "run_id": "d19cc3ee-a8fd-4c10-a0b7-6402d97aeec1",
+  "native_task_id": "agent-hub-chat-d19cc3ee",
+  "conversation": {
+    "armed_at": null,
+    "started_at": null,
+    "deadline": null,
+    "duration_seconds": 600
+  },
+  "message_count": 0,
+  "reconfirmed": {
+    "dot": true,
+    "muse": false
+  },
+  "activity": [
+    {
+      "role": "owner",
+      "action": "task_scoped_session_prepared",
+      "at": "2026-10-28T21:58:56.830Z"
+    },
+    {
+      "role": "dot",
+      "action": "identity",
+      "at": "2026-10-28T22:11:23.162Z"
+    },
+    {
+      "role": "dot",
+      "action": "registration_reconfirmed",
+      "at": "2026-10-28T22:11:40.034Z"
+    },
+    {
+      "role": "muse",
+      "action": "identity",
+      "at": "2026-10-28T22:19:47.501Z"
+    }
+  ],
+  "dot_permission": {
+    "default": "Allow low-risk actions",
+    "app": "Use my default"
+  },
+  "native_task_scoped_approval_observed": true,
+  "global_site_grant_for_this_run_created": false,
+  "preflight_outcome": "Muse identity reached relay; client transport incomplete; signed reconfirmation not attempted",
+  "recovery_executed": false,
+  "recovery_review": "rejected: stop-on-timeout rule requires fresh owner authorization",
+  "updated_at": "2026-10-28T22:45:47.576032+00:00",
+  "revoked": true,
+  "tunnel_closed_at": "2026-10-28T22:32:44.703Z",
+  "tunnel_exit_verified": true,
+  "old_target_still_available": false,
+  "next_step": "fresh recovery authorization pending; no native client modification or retry executed"
+}

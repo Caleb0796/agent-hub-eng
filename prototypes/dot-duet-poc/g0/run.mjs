@@ -1,0 +1,13 @@
+import { BridgeStore } from '../src/store.mjs';
+import { G0Store } from './store.mjs';
+import { startServers } from '../src/server.mjs';
+import { resolve } from 'node:path';
+const state = resolve('.state');
+const auth = new BridgeStore(state);
+const store = new G0Store(state);
+store.authenticate = token => auth.authenticate(token);
+store.connectionTokens = auth.data.tokens;
+const running = await startServers({ directory: state, storeOverride: store });
+console.log('G0 relay on 127.0.0.1:8787; owner console http://127.0.0.1:8788/g0');
+setTimeout(async () => { await running.stop(); process.exit(0); }, Math.max(1, store.data.expires - Date.now()));
+for (const s of ['SIGINT','SIGTERM']) process.once(s, async () => { await running.stop(); process.exit(0); });

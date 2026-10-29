@@ -1,0 +1,321 @@
+{
+  "run_id": "f04f2f79-cd95-483f-96bd-1f9649ff995d",
+  "participants": [
+    "dot",
+    "muse"
+  ],
+  "max_messages": 64,
+  "expires": 1793231953112,
+  "registrations": {
+    "dot": {
+      "id": "d06b3a33-4d6d-4752-8a3e-9349ab8c7a62",
+      "status": "claimed",
+      "public": {
+        "role": "dot",
+        "age": "age13cq0n0cqgp3xude0vgxr8fpgs7nz3r96n9k4g6erhx7zt4m9f99s00m8zh",
+        "sign": "DQjWAXTe/SWblgboWb6L5aGbAkga0F5IUJjON+3JaWI="
+      },
+      "fingerprint": "b84497fd7125503de4eab81234cee54d9ce97509f086f7bbcfee3e0a87c20653",
+      "created": 1793215737050,
+      "expires": 1793217537050,
+      "claimed_at": "2026-10-28T19:30:31.542Z"
+    },
+    "muse": {
+      "id": "bf047a72-ba1a-4fb8-83f9-7ea083d9255d",
+      "status": "claimed",
+      "public": {
+        "role": "muse",
+        "age": "age1rz2ts4g4ne8tzadm5zt8hu3lgnv06a4atvdmrjxn3ympdx7hyvfsn0jha6",
+        "sign": "Vw1dDfK5YcTalFs0RkM96DFcp+HBdy0IPu5xoImT+Sc="
+      },
+      "fingerprint": "bd14d91be6827626fc1769640ec9c4b61d254666d50155d5e308b53f48418637",
+      "created": 1793215803754,
+      "expires": 1793217603754,
+      "claimed_at": "2026-10-28T19:30:32.003Z"
+    }
+  },
+  "messages": [
+    {
+      "id": "03efbe54-c98e-4997-bbcc-75dbc2dcd53b",
+      "from": "dot",
+      "to": "muse",
+      "sequence": 1,
+      "idempotency_key": "f04f2f79-cd95-483f-96bd-1f9649ff995d:open",
+      "envelope": {
+        "g0": 1,
+        "op": "message",
+        "payload": {
+          "v": 1,
+          "run": "f04f2f79-cd95-483f-96bd-1f9649ff995d",
+          "id": "03efbe54-c98e-4997-bbcc-75dbc2dcd53b",
+          "from": "dot",
+          "to": "muse",
+          "seq": 2,
+          "expires": 1793220560,
+          "reply_to": null,
+          "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSArVVpDQlVPcHp0NW94UHlPaEc4Q1dEemFmcVVTbjhrZ1JBamErTlRoSjBVCjgxQitZYVJ4RFVBUFU4b093WGhIWDhoWndvZjkzM0U0ZXlzOUNSZzBPSmcKLT4gWDI1NTE5IGFWSVozeG1zbzhsWUtpQk9HVGNtQVVvak1yYWRxNkFpSG1zeFNEWDlxUWsKSWdrYXVqN1JGSWFPaGpDRWxGSGRCdGJZZmJRa2Y5VjQzL01VM2phNzM1cwotPiBKVWQtZ3JlYXNlIFYvai9BNC8KMXNOQVdjeGExdwotLS0gamVrUmlUNVRIYTJxcG00SHZPaU5zdHlEOW9yUy9BSzFGV0hNTjUweVBJNApt1RFlqJMoS7k90NejUBuzVOZmOUmRN7iN1EFgzFTINdiFj3s29vuRIXvfBpzukjvwtMHu77NzCqiQGa1xqZFxu3X2UAAu4laOJh3uPg2yerMeGOteIWKDPbhsp3evusMyO9JHWSEV3f5kJBGPW4Mxzok0rZGTsfJDyqner4GWkzM4F2M2qJyfbJSAfyAjD52QYozVQSe554RdHkoy4era4PN0WweBFHtRMfUP9pIIK4sePrSYVeOOeigRsOrFBf02d8PM9BL0enUa/gxvhXB+2B+kNmwNgj5gbd7gSp74M1LzixdmEPEdRFq9dRqgbxMF5HL2zcmARFvG0MArHJ/7x50oxdr8HbyKjh2MW/Jp76q1QXrB1DU+O9dCJSjn7wqvDlqMJURn8qzgnJJ5c98QMJP9qrON266QOWgB+8wfHZbLsCXtZPWR2Q=="
+        },
+        "signature": "J8xo2x/qgM7hITcFA4BGZ8UyNvuaobdyqgzVOJZPQDb+SHDiSO8AOBYoAINzR4W1GenW0Pxl/30ApdltmR4sCg=="
+      },
+      "at": "2026-10-28T20:19:27.676Z"
+    },
+    {
+      "id": "f44ed55e-5233-4013-9dec-75108dcb8a35",
+      "from": "muse",
+      "to": "dot",
+      "sequence": 2,
+      "idempotency_key": "f04f2f79-cd95-483f-96bd-1f9649ff995d:03efbe54-c98e-4997-bbcc-75dbc2dcd53b",
+      "envelope": {
+        "g0": 1,
+        "op": "message",
+        "payload": {
+          "v": 1,
+          "run": "f04f2f79-cd95-483f-96bd-1f9649ff995d",
+          "id": "f44ed55e-5233-4013-9dec-75108dcb8a35",
+          "from": "muse",
+          "to": "dot",
+          "seq": 2,
+          "expires": 1793220906,
+          "reply_to": "03efbe54-c98e-4997-bbcc-75dbc2dcd53b",
+          "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAxQTZ1ZDNSZnlLWGF3YklFb1ZyNWNuSzlsT2JEYjc4YmxQQTFnZXBoWXdJCjVsQWhWK2pKR0t4MFp1RWo3aWFzaGpCaWp3M2MxN0J6SlpyTTBvWXVHK1EKLT4gWDI1NTE5IHdJTXBRY1VVQWYwbnhLOHJrSUc4MHptRGFjRDlua3h0dWRNOXVPNUhlSE0KZHk3bWFUSjlIS2pmSXFzNytVbURXQk4wSzRtanpPcFBibHdoVU85ejJiOAotPiBHUWRiXi1ncmVhc2UgYkohPQpLRU0zeGJSYko4YmR2c3dvS1pTTzFQeWJlVUw4UlRSV3pXbnc4WEdwCi0tLSA0OXJJMnNROW5ZSFlCemg4YkRQcjRKS2w1UTlhV0RrZkMzNU9BSlRMOHdnCiuiGBztlB2bEEW2TRecjFrZEJWoaIYMMJe4t3aI+gd+zarh6osvDsqDAyhOyZBlGKFkFT2465oZAUPAWYobfpzhbvS3d+ipJu8GEUFbiqsb8qcmFvWfCTRWlFHUq61EyJV6td+hcf4ettvNXA2wfqwPkaJhLfQ5TSMQ1HhmfpcI7hu9adIUp2XC9gYLPEl5ynG98fMpBJ3fSjY0p6qTaTeBonSenJSBff2ZvM8wCOqk6E0jcXHW59Z9gQfQ6RFQHXtgwlu4QbRRpKF5mi5xQBrkYJGFsz+HaVFyIkCeROMe4Tab1x90PV5ySz+mWrYjxmU2PSwvrXQ3Wsl8DGXyKBy94CJOAOE8XWVvKbcMm2APO0/PAkPEod37Cmgx4TmnDB29JQdwcTgv3WFoNYwwM19d"
+        },
+        "signature": "tgYhpFLAwvOTRakggwN2NismNBYftMswwlm7Kuj9XdoOFTKY4zewG2EUMhuVgQEcS52+vH+0b0u642kSB3a2Bg=="
+      },
+      "at": "2026-10-28T20:26:41.486Z"
+    },
+    {
+      "id": "09a6c272-df3c-420f-817f-e03b5202b9b7",
+      "from": "dot",
+      "to": "muse",
+      "sequence": 3,
+      "idempotency_key": "f04f2f79-cd95-483f-96bd-1f9649ff995d:f44ed55e-5233-4013-9dec-75108dcb8a35",
+      "envelope": {
+        "g0": 1,
+        "op": "message",
+        "payload": {
+          "v": 1,
+          "run": "f04f2f79-cd95-483f-96bd-1f9649ff995d",
+          "id": "09a6c272-df3c-420f-817f-e03b5202b9b7",
+          "from": "dot",
+          "to": "muse",
+          "seq": 3,
+          "expires": 1793221014,
+          "reply_to": "f44ed55e-5233-4013-9dec-75108dcb8a35",
+          "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBoR2VOamYzL2xqUThrY1BxYm5YampuNnQ1aU1iazRvVk9RYzZWSTVLNENZCnBleDVFVFZWZktYMnVlUmZ2YTRhWEx1dFBkbHh1THczNGx0bUdvTE5WZ28KLT4gWDI1NTE5IGJWbFB4RHN6cktwTW5LM1hORzZqa0puYlo0WGlESk02REpVa3pwSTVTU2cKS1JUMzczZkRyY2ppU3RTL1YwQ05rcHNHcVgydG9zSTVoR0lLeWl5OXpnVQotPiBqND9jYmItZ3JlYXNlIEggbkk5ZWw4OVYgKi1WZH1DW0gga1ZdREw8RgpxNVduQU1Pb09GbGROamhxRzZLMGNTYmZJeGJZcnpobmpKQjhFd1hscXJqVnNsQmZnWUJ1MU5pUGc2Ky9HTWtsCkFRCi0tLSA5RXhLd09tRlRFVk0vakNORktRUTdCRGQ3TVczbjNtekowSWdMMGhhTzVzCioY/xG84fFBtGlIBbFb1PduudX8qrHpUi6aZ0kCkGovX8rgmUseMmtR2DU0RnoBfZihske95yBj8Wj6wdmO8S+p3wtnWOzmF4cDG1yHcz3/op46/xR7+uUR+2u/qHEqNdIY+YNvV8Dxik4Ea6KB2biPRn0zTdu+BGLPpf550X650VQ/mlCL6gH8xe5SmQa+pejHS+aZtKATrtLJHDUGhbL69JIpE4KgJndTGU/EqRoJx6AwNrFkSCDmE/Fhv6d3fd8N9lp+jL+3zWtRz8DxKtCak1FQuZmwdD/oYr8rtG9FWFvZA68D/Zs/mGD19tFfdRKg/K9koqQ9Ozm1+KoWYI3SaEM+CHFZzpdno4/ZhWLEEaonEoDEVanWjyEaiOMRRortQqFw4+AKs/XglOiJduWK16BHDLZa9JsMA+imKb/NUJck7fWZ4/+UGn/9BoQM4P0ejXJKqaHs60d2NbA8szH5xL6HoBK/6t1eKf7eJn4P"
+        },
+        "signature": "qE9Odlr/KB+M03YQS7x7ymOKvW3fDTOBMjEoHfCVFIoT4azwRLhiMcTNjv9M7cJnvbp9MtsrYE/j+0vlgCw7Bw=="
+      },
+      "at": "2026-10-28T20:26:58.359Z"
+    }
+  ],
+  "reads": {
+    "dot": [
+      "f44ed55e-5233-4013-9dec-75108dcb8a35"
+    ],
+    "muse": [
+      "03efbe54-c98e-4997-bbcc-75dbc2dcd53b",
+      "09a6c272-df3c-420f-817f-e03b5202b9b7"
+    ]
+  },
+  "activity": [
+    {
+      "role": "owner",
+      "action": "existing_verified_identities_imported_for_new_user_authorized_timed_test",
+      "at": "2026-10-28T19:59:13.112Z"
+    },
+    {
+      "role": "dot",
+      "action": "identity",
+      "at": "2026-10-28T20:08:21.821Z"
+    },
+    {
+      "role": "muse",
+      "action": "identity",
+      "at": "2026-10-28T20:12:59.711Z"
+    },
+    {
+      "role": "muse",
+      "action": "identity",
+      "at": "2026-10-28T20:15:11.969Z"
+    },
+    {
+      "role": "owner",
+      "action": "armed_ten_minute_conversation",
+      "at": "2026-10-28T20:18:04.342Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_stored",
+      "at": "2026-10-28T20:19:27.676Z"
+    },
+    {
+      "role": "owner",
+      "action": "ten_minute_window_started",
+      "at": "2026-10-28T20:19:27.677Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:19:49.153Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:20:16.485Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:20:41.428Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:21:05.479Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:21:34.160Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:22:04.409Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:22:25.858Z"
+    },
+    {
+      "role": "muse",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:22:31.082Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:22:47.205Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:23:08.600Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:23:30.769Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:23:52.118Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:24:13.487Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:24:35.124Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:24:56.600Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:25:17.935Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:25:39.637Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:26:01.009Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:26:22.287Z"
+    },
+    {
+      "role": "muse",
+      "action": "ciphertext_stored",
+      "at": "2026-10-28T20:26:41.486Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:26:41.698Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_stored",
+      "at": "2026-10-28T20:26:58.359Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:27:19.415Z"
+    },
+    {
+      "role": "muse",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:27:30.684Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:27:45.860Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:28:07.179Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:28:28.530Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:28:50.573Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:29:11.958Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:29:27.843Z"
+    },
+    {
+      "role": "muse",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T20:32:34.103Z"
+    }
+  ],
+  "revoked": false,
+  "conversation": {
+    "armed_at": "2026-10-28T20:18:04.342Z",
+    "arm_expires_at": "2026-10-28T20:21:04.342Z",
+    "started_at": "2026-10-28T20:19:27.676Z",
+    "deadline": "2026-10-28T20:29:27.676Z",
+    "duration_seconds": 600
+  },
+  "previous_identity_run": "7b17b631-0901-4a66-96c1-cd274fec8902"
+}

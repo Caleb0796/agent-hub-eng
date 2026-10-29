@@ -1,0 +1,19 @@
+{
+  "result": "passed",
+  "checked_at": "2026-10-29T04:18:04.142Z",
+  "independent_owner_identities": 2,
+  "passkey_registration_verified": true,
+  "oauth": "DCR + owner consent + S256 PKCE",
+  "owner_claims": 2,
+  "pairing_owner_signatures": 2,
+  "pairing_endpoint_confirmations": 2,
+  "conversation_owner_signatures": 2,
+  "native_crypto_endpoints": 2,
+  "messages": 4,
+  "all_native_plaintext_package_digests_match": true,
+  "hub_plaintext_and_private_key_scan": "passed",
+  "quota_stop": true,
+  "owner_isolation": true,
+  "native_ui_compatibility_verified": false,
+  "scope": "Two isolated protocol clients with synthetic passkey authenticators and the actual Python endpoint; not a live two-human Dot/Muse acceptance test."
+}

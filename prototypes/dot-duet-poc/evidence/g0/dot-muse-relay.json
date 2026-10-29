@@ -1,0 +1,158 @@
+{
+  "run_id": "7b17b631-0901-4a66-96c1-cd274fec8902",
+  "participants": [
+    "dot",
+    "muse"
+  ],
+  "expires": 1793229091971,
+  "registrations": {
+    "dot": {
+      "id": "d06b3a33-4d6d-4752-8a3e-9349ab8c7a62",
+      "status": "claimed",
+      "public": {
+        "role": "dot",
+        "age": "age13cq0n0cqgp3xude0vgxr8fpgs7nz3r96n9k4g6erhx7zt4m9f99s00m8zh",
+        "sign": "DQjWAXTe/SWblgboWb6L5aGbAkga0F5IUJjON+3JaWI="
+      },
+      "fingerprint": "b84497fd7125503de4eab81234cee54d9ce97509f086f7bbcfee3e0a87c20653",
+      "created": 1793215737050,
+      "expires": 1793217537050,
+      "claimed_at": "2026-10-28T19:30:31.542Z"
+    },
+    "muse": {
+      "id": "bf047a72-ba1a-4fb8-83f9-7ea083d9255d",
+      "status": "claimed",
+      "public": {
+        "role": "muse",
+        "age": "age1rz2ts4g4ne8tzadm5zt8hu3lgnv06a4atvdmrjxn3ympdx7hyvfsn0jha6",
+        "sign": "Vw1dDfK5YcTalFs0RkM96DFcp+HBdy0IPu5xoImT+Sc="
+      },
+      "fingerprint": "bd14d91be6827626fc1769640ec9c4b61d254666d50155d5e308b53f48418637",
+      "created": 1793215803754,
+      "expires": 1793217603754,
+      "claimed_at": "2026-10-28T19:30:32.003Z"
+    }
+  },
+  "messages": [
+    {
+      "id": "a5903076-021f-491e-bfd6-a52670377032",
+      "from": "dot",
+      "to": "muse",
+      "sequence": 1,
+      "idempotency_key": "dot-muse-challenge-1",
+      "envelope": {
+        "g0": 1,
+        "op": "message",
+        "payload": {
+          "v": 1,
+          "run": "7b17b631-0901-4a66-96c1-cd274fec8902",
+          "id": "a5903076-021f-491e-bfd6-a52670377032",
+          "from": "dot",
+          "to": "muse",
+          "seq": 1,
+          "expires": 1793219911,
+          "reply_to": null,
+          "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBPWVVSa3dreG8ySmcyTUpIWWxTRWhjbzZadWJWVndTV1N6VGl3elg3clFvCnlzellqeDMwTENWbUFqN1lla2l1K3R3UUpZM0lmeEp2QVBCcHRDMjlaNDgKLT4gWDI1NTE5IFBXTDNnakgxVmdlc2ZGajJoMVZPZENUU2NkeW9tWWo5endqcUlKSjZiU3MKb0RoeGZQUFFwWkt3M3I5RUdhcGJOUGhqUFdMeEptMEU1Smt6ZzE0Sm5LUQotPiBFW35JZGczLWdyZWFzZSBwNXcgJGRfNSVicl8gcW9dPiB2Ci9ISGcxeUZWL1FPa2I5QVZ1ZVFTRThiTzZKaGkvaUlpWmQ5a05qWW0vekFvZFV0RGY5cWQvNVU5dHcKLS0tIE9lektqSWlCeVNQOTJCcCt0bUdPOG5XT0FtT0s5b3hoOTh5VDM4c3ptL1kKUKKfoUp1HdBYXe9YyF2k0xczuMLffbAt2IyA95t8R5I5713slNZt+NPKXxf9EKJ+2Scmlo2dJp01DTC672ABbIJHb385w6/3MpFjaPN2IrjVO9Ee/6KtiTd/RpyzSlDmzPls9srpPUgtjb5ylRJJjO/XGfR4aGMniaA62wSk"
+        },
+        "signature": "U+yBns3EGawuk00jGHSnlc1G1UOr6qBtQ0w4xKLXiOpiPabB/n/FFJFKjnbhlejizg1SOeXBOSpmqyGu4C6lCw=="
+      },
+      "at": "2026-10-28T19:38:45.872Z"
+    },
+    {
+      "id": "c3c7220b-3d8a-4654-9eae-9aa903dd7bcd",
+      "from": "muse",
+      "to": "dot",
+      "sequence": 2,
+      "idempotency_key": "dot-muse-reply-1",
+      "envelope": {
+        "g0": 1,
+        "op": "message",
+        "payload": {
+          "v": 1,
+          "run": "7b17b631-0901-4a66-96c1-cd274fec8902",
+          "id": "c3c7220b-3d8a-4654-9eae-9aa903dd7bcd",
+          "from": "muse",
+          "to": "dot",
+          "seq": 1,
+          "expires": 1793220025,
+          "reply_to": "a5903076-021f-491e-bfd6-a52670377032",
+          "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBMeU9icnJhSHhYTWZnNU5lS1grcnByMThDNG1IQUs2MHUwSTJsVzNPQ25JClkwdFU0QWpLaWVmTm01dyswSWRRejVzY2RNa1B6blVVMlIxdDByWFBxcEkKLT4gWDI1NTE5IEpCdnhzSUtndnFKdURqSEhWakFFUmVqQU85Z2VmQ1piSzdCNkJUQWtPWG8KSE5wWlZBUE1ZNU12ZzUrOTl5WkZ6N2ZBVk5EaEF3UTAwd09TeENpMWFKYwotPiAkUictZ3JlYXNlIDdHJwpvWE4zQ0FiZlRENEQ0SzFJV1dRd3ZrOWJXeVhUbnNNMXkwZ01mbTFUVWtBUGFFVklFUTc3M3NaZ1RISG44R24yCk5mOTBWTWV0WjJpOVNERlM5WWdGK1B2YjE1S2szZzlqZmNEMGU0cwotLS0gSkZhOG9mNmNmbUNCak5GSmtzc0RGcGpGemVNWTlmanBCTVRyWmp1OUg0dwqPdwjGqB+r6iiKik7unbaIKSJLXKPJivh5zW8zEIPdJhX0j2Vh4VD1+jekAuZe+e7GBVykBJqyaqADQfvqYgGu6/k6IZH5DOWmJULQmpB0eHY1ASS/ha2FxEVymsEfV3clOdmRcMq3LsMbQHVDo0V7/v2w3mkGk4NxZ8KCjtto7OFcMhCQKf2Mlq18TqLhB8Q2jAuFSAMA"
+        },
+        "signature": "7yHLsnbRC6ZHAEhWGfrEMeIowEpoTgHdIETZP4g4b9gQawty/cUBZ4/b4B+DAK5ceTlQNLC5iVcPvIiGQHFPBA=="
+      },
+      "at": "2026-10-28T19:40:30.669Z"
+    }
+  ],
+  "reads": {
+    "muse": [
+      "a5903076-021f-491e-bfd6-a52670377032"
+    ],
+    "dot": [
+      "c3c7220b-3d8a-4654-9eae-9aa903dd7bcd"
+    ]
+  },
+  "activity": [
+    {
+      "role": "dot",
+      "action": "identity",
+      "at": "2026-10-28T19:14:31.053Z"
+    },
+    {
+      "role": "muse",
+      "action": "client_connected",
+      "at": "2026-10-28T19:24:16.903Z"
+    },
+    {
+      "role": "muse",
+      "action": "identity",
+      "at": "2026-10-28T19:27:49.731Z"
+    },
+    {
+      "role": "dot",
+      "action": "identity",
+      "at": "2026-10-28T19:28:45.383Z"
+    },
+    {
+      "role": "dot",
+      "action": "registration_created",
+      "at": "2026-10-28T19:28:57.050Z"
+    },
+    {
+      "role": "muse",
+      "action": "registration_created",
+      "at": "2026-10-28T19:30:03.754Z"
+    },
+    {
+      "role": "owner",
+      "action": "claimed_dot",
+      "at": "2026-10-28T19:30:31.542Z"
+    },
+    {
+      "role": "owner",
+      "action": "claimed_muse",
+      "at": "2026-10-28T19:30:32.003Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_stored",
+      "at": "2026-10-28T19:38:45.872Z"
+    },
+    {
+      "role": "muse",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T19:40:00.235Z"
+    },
+    {
+      "role": "muse",
+      "action": "ciphertext_stored",
+      "at": "2026-10-28T19:40:30.669Z"
+    },
+    {
+      "role": "dot",
+      "action": "ciphertext_fetched",
+      "at": "2026-10-28T19:41:25.700Z"
+    }
+  ],
+  "revoked": false,
+  "max_messages": 2
+}
