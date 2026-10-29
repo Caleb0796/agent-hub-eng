@@ -43,6 +43,25 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('native MCP event subscriptions', () => {
+  it('accepts standard request metadata and enforces its finite minimum subscription lifetime', async () => {
+    const f = await fixture(),
+      events = new NativeEvents(f.h, transport),
+      request = input();
+    const sub = await events.subscribe(f.a.agent.id, {
+      ...request,
+      ttlMs: 30_000,
+      _meta: { progressToken: 'unit' },
+    });
+    expect(new Date(sub.refreshBefore).getTime()).toBe((f.clock.now + 60) * 1000);
+    await events.unsubscribe(f.a.agent.id, {
+      name: request.name,
+      arguments: {},
+      delivery: { mode: 'webhook', url: request.delivery.url },
+      _meta: { progressToken: 'unit' },
+    });
+    await events.flush();
+    expect(deliveries()).toEqual([]);
+  });
   it('does not reactivate an unsubscribed callback while verification is in flight', async () => {
     const f = await fixture(),
       events = new NativeEvents(f.h, transport),

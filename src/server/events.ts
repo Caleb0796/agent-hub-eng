@@ -16,11 +16,17 @@ const subscribeInput = z
     arguments: filter.default({}),
     delivery: delivery.extend({ secret: z.string().max(100) }),
     cursor: z.null().optional(),
-    ttlMs: z.number().int().min(60_000).nullable().optional(),
+    ttlMs: z.number().int().positive().nullable().optional(),
+    _meta: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 const unsubscribeInput = z
-  .object({ name: eventName, arguments: filter.default({}), delivery })
+  .object({
+    name: eventName,
+    arguments: filter.default({}),
+    delivery,
+    _meta: z.record(z.string(), z.unknown()).optional(),
+  })
   .strict();
 type Subscription = {
   id: string;
@@ -49,7 +55,10 @@ type Delivery = {
   lease_until: number | null;
 };
 export class CallbackEndpointError extends Error {
-  constructor(readonly reason: 'invalid_url' | 'challenge_failed' | 'timeout') {
+  constructor(
+    readonly reason: 'invalid_url' | 'challenge_failed' | 'timeout',
+    readonly httpStatus?: number,
+  ) {
     super('Callback verification failed');
   }
 }
@@ -242,7 +251,7 @@ export class NativeEvents {
         }
         if (!response.ok || Number(response.headers.get('content-length') ?? 0) > 4096) {
           await response.body?.cancel();
-          throw new CallbackEndpointError('challenge_failed');
+          throw new CallbackEndpointError('challenge_failed', response.status);
         }
         let value = '';
         try {
@@ -272,7 +281,8 @@ export class NativeEvents {
           throw new CallbackEndpointError('challenge_failed');
       }
       const expiry =
-          this.hub.now() + Math.floor(Math.min(input.ttlMs ?? 3_600_000, 86_400_000) / 1000),
+          this.hub.now() +
+          Math.floor(Math.max(60_000, Math.min(input.ttlMs ?? 3_600_000, 86_400_000)) / 1000),
         rotated = previous && previous.signing_secret !== input.delivery.secret;
       // Recheck after the outbound verification, so revocation while verifying cannot activate a subscription.
       const current = await this.hub.activeAgent(agentId);
