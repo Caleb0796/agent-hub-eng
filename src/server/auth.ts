@@ -158,23 +158,6 @@ router.use('*', async (c, next) => {
   await next();
 });
 
-// Lets the signup page reject a stale invitation before the passkey ceremony.
-// Returns only a boolean; consumption still happens atomically at registration.
-router.post('/invite/check', async (c) => {
-  await rateLimit(c.env, `invite:${c.req.header('X-Forwarded-For') ?? 'local'}`, 10);
-  const { invite } = z
-    .object({ invite: z.string().min(1).max(100) })
-    .strict()
-    .parse(await c.req.json());
-  const row = await db(c.env)
-    .prepare(
-      'SELECT token_hash FROM signup_invites WHERE token_hash=? AND consumed_by IS NULL AND expires_at>?',
-    )
-    .bind(await sha256(invite), nowSeconds())
-    .first();
-  return c.json({ valid: !!row });
-});
-
 router.post('/register/options', async (c) => {
   const input = registerInput.parse(await c.req.json());
   const connection = db(c.env);
