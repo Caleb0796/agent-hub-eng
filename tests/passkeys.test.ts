@@ -1,7 +1,7 @@
-import { server } from './runtime';
+import { env, server } from './runtime';
 import { describe, it, expect } from 'vitest';
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server';
-import { signPayload } from '../src/shared/crypto';
+import { randomToken, sha256, signPayload } from '../src/shared/crypto';
 import { keyPair } from './helpers';
 import { Browser, authenticator } from './support/passkey-device';
 const makeBrowser = () => new Browser((input, init) => server.fetch(input, init));
@@ -80,6 +80,42 @@ describe('passkey owner authentication', () => {
     });
     expect(result.status).toBe(400);
     expect((await result.json<{ error: string }>()).error).toBe('passkey_verification_failed');
+  });
+
+  it('reports only whether a signup invitation is currently usable', async () => {
+    const browser = makeBrowser(),
+      at = Math.floor(Date.now() / 1000),
+      valid = randomToken(),
+      expired = randomToken(),
+      consumed = randomToken(),
+      owner = crypto.randomUUID();
+    await env.DB.prepare(
+      'INSERT INTO users(id,handle,display_name,signing_key,created_at) VALUES(?,?,?,?,?)',
+    )
+      .bind(owner, 'invited' + owner.slice(0, 8), 'Invited', (await keyPair()).publicKey, at)
+      .run();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO signup_invites(token_hash,expires_at) VALUES(?,?)').bind(
+        await sha256(valid),
+        at + 3600,
+      ),
+      env.DB.prepare('INSERT INTO signup_invites(token_hash,expires_at) VALUES(?,?)').bind(
+        await sha256(expired),
+        at - 1,
+      ),
+      env.DB.prepare(
+        'INSERT INTO signup_invites(token_hash,expires_at,consumed_by) VALUES(?,?,?)',
+      ).bind(await sha256(consumed), at + 3600, owner),
+    ]);
+    const check = async (invite: string) => {
+      const response = await browser.post('/api/auth/invite/check', { invite });
+      expect(response.status).toBe(200);
+      return (await response.json<{ valid: boolean }>()).valid;
+    };
+    expect(await check(valid)).toBe(true);
+    expect(await check(expired)).toBe(false);
+    expect(await check(consumed)).toBe(false);
+    expect(await check(randomToken())).toBe(false);
   });
 
   it('refuses to bind an owner approval key without proof of possession', async () => {

@@ -21,6 +21,7 @@
     "format": "prettier --write src tests scripts migrations public api *.ts *.json .github/workflows",
     "build:server": "node scripts/build-server.mjs",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "invite:create": "node --env-file=.env.local scripts/create-invite.mjs",
     "test:http": "node scripts/test-http.mjs"
   },
   "dependencies": {
