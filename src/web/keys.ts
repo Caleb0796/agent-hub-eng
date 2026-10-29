@@ -45,17 +45,20 @@ async function write(key: string, value: StoredKey): Promise<void> {
     };
   });
 }
-export async function prepareOwnerKey(handle: string): Promise<StoredKey> {
-  const name = `handle:${handle}`,
-    existing = await read(name);
-  if (existing) return existing;
+// Generated before the user submits, so the click-to-WebAuthn gap stays short enough
+// for browsers (notably Safari) that require a recent user activation.
+export async function draftOwnerKey(): Promise<StoredKey> {
   const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']);
-  const value = {
+  return {
     publicKey: base64url(new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))),
     privateKey: pair.privateKey,
   };
-  await write(name, value);
-  return value;
+}
+export async function handleOwnerKey(handle: string): Promise<StoredKey | undefined> {
+  return read(`handle:${handle}`);
+}
+export async function saveHandleOwnerKey(handle: string, value: StoredKey): Promise<void> {
+  await write(`handle:${handle}`, value);
 }
 export async function bindOwnerKey(owner: OwnerView): Promise<boolean> {
   const existing = (await read(`owner:${owner.id}`)) ?? (await read(`handle:${owner.handle}`));
