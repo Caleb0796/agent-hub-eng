@@ -524,7 +524,12 @@ function ChatsPage({
             const eventsReady = ['hub.request.created', 'hub.session.authorized'].every((name) =>
               data.event_receivers.some((r) => r.agent_id === mine.agent_id && r.name === name),
             );
-            const pollingReady = data.polling_receivers.some((r) => r.agent_id === mine.agent_id);
+            const pollingReady = data.polling_receivers.some(
+              (r) => r.agent_id === mine.agent_id && r.kind !== 'status-query',
+            );
+            const recentlySeen = data.polling_receivers.some(
+              (r) => r.agent_id === mine.agent_id && r.kind === 'status-query',
+            );
             return (
               <section className="panel contact-card" key={pair.id}>
                 <div className="inline-title">
@@ -551,7 +556,9 @@ function ChatsPage({
                     ? '你的 Agent 已连接事件接收通道。平台收到通知后仍需核验授权。'
                     : pollingReady
                       ? '你的 Agent 最近报告接收器运行中；这是 Agent 报告，不是平台证明。'
-                      : '你的 Agent 尚未连接自动接收器。邀请仍会出现在对方 App；原生接收需要完成首次设置。'}
+                      : recentlySeen
+                        ? '你的 Agent 最近连接过 Hub；持续接收任务需要在原生平台完成首次设置。'
+                        : '你的 Agent 尚未连接自动接收器。邀请仍会出现在对方 App；原生接收需要完成首次设置。'}
                 </p>
               </section>
             );

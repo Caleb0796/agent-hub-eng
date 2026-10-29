@@ -23,7 +23,7 @@ app.route('/api/auth', auth);
 app.route('/api', api);
 app.route('/', oauthRoutes);
 app.route('/', onboarding);
-app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.2.0' }));
+app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.2.1' }));
 app.get('/api/cron/cleanup', async (c) => {
   const expected = c.env.CRON_SECRET;
   if (!expected || c.req.header('Authorization') !== `Bearer ${expected}`)
@@ -59,6 +59,7 @@ app.get('/.well-known/agent-hub.json', (c) =>
     },
     receiving: {
       requests_tool: 'hub_requests',
+      compatibility_state_field: 'pending_requests',
       heartbeat_tool: 'hub_receiver_heartbeat',
       events: ['hub.request.created', 'hub.session.authorized'],
       event_methods: ['events/list', 'events/subscribe', 'events/unsubscribe'],
@@ -199,6 +200,7 @@ export async function cleanup(env: Env): Promise<void> {
     connection.prepare('DELETE FROM browser_sessions WHERE expires_at<=?').bind(at),
     connection.prepare('DELETE FROM rate_limits WHERE expires_at<=?').bind(at),
     connection.prepare('DELETE FROM oauth_records WHERE expires_at<=?').bind(at),
+    connection.prepare('DELETE FROM native_receivers WHERE expires_at<?').bind(at - 86400),
   ]);
   // Actual native task state is never invented by this cleanup job.
   await provider(env, app).purgeExpiredData(env as HubBindings, { batchSize: 100 });

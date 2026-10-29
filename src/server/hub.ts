@@ -1065,6 +1065,20 @@ export class Hub {
     };
   }
 
+  async noteStatusQuery(agentId: string) {
+    const a = await this.agent(agentId);
+    if (a.status !== 'active') return;
+    await this.connection
+      .prepare(
+        `INSERT INTO native_receivers(agent_id,auth_version,kind,task_reference,updated_at,expires_at)
+      VALUES(?,?,'status-query','authenticated-query',?,?) ON CONFLICT(agent_id) DO UPDATE SET
+      auth_version=excluded.auth_version,kind=excluded.kind,task_reference=excluded.task_reference,
+      updated_at=excluded.updated_at,expires_at=excluded.expires_at WHERE native_receivers.kind='status-query' OR native_receivers.expires_at<=? OR native_receivers.auth_version<>excluded.auth_version`,
+      )
+      .bind(a.id, a.auth_version, this.now(), this.now() + 300, this.now())
+      .run();
+  }
+
   async pendingRequests(agentId: string) {
     await this.activeAgent(agentId);
     const rows = await this.connection
@@ -1144,6 +1158,8 @@ export class Hub {
       pairings: pairs.results.map((p) => this.pairView(p)),
       conversations: sessions.results.map((c) => this.conversationView(c)),
       readiness: ready.results,
+      pending_requests: a.status === 'active' ? (await this.pendingRequests(agentId)).requests : [],
+      request_execution_permission_granted: false,
     };
   }
 

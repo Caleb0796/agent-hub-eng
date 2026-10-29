@@ -3,6 +3,25 @@ import { fixture, registeredAgent, seedOwner } from './helpers';
 import { signPayload } from '../src/shared/crypto';
 
 describe('invitation metadata for the owner App and addressed Agent', () => {
+  it('distinguishes a real status query from internal snapshots and a native receiver report', async () => {
+    const f = await fixture();
+    await f.h.endpointState(f.a.agent.id);
+    expect((await f.h.dashboard(f.alice.id)).polling_receivers).toEqual([]);
+    await f.h.noteStatusQuery(f.a.agent.id);
+    expect((await f.h.dashboard(f.alice.id)).polling_receivers[0]).toMatchObject({
+      kind: 'status-query',
+    });
+    await f.h.receiverHeartbeat(f.a.agent.id, 'scheduled-task', 'native-worker');
+    await f.h.noteStatusQuery(f.a.agent.id);
+    expect((await f.h.dashboard(f.alice.id)).polling_receivers[0]).toMatchObject({
+      kind: 'scheduled-task',
+    });
+    f.clock.now += 301;
+    await f.h.noteStatusQuery(f.a.agent.id);
+    expect((await f.h.dashboard(f.alice.id)).polling_receivers[0]).toMatchObject({
+      kind: 'status-query',
+    });
+  });
   it('exposes the same request after the sender signs, without granting or delivering a chat', async () => {
     const f = await fixture({ ready: false });
     expect((await f.h.pendingRequests(f.b.agent.id)).requests).toEqual([]);
@@ -30,6 +49,9 @@ describe('invitation metadata for the owner App and addressed Agent', () => {
     const app = await f.h.dashboard(f.bob.id);
     expect(app.conversations.some((c) => c.id === inbox.requests[0].id)).toBe(true);
     expect((await f.h.endpointState(f.b.agent.id)).conversations).toEqual([]);
+    const compatible = await f.h.endpointState(f.b.agent.id);
+    expect(compatible.pending_requests[0].id).toBe(f.c.id);
+    expect(compatible.request_execution_permission_granted).toBe(false);
     await f.h.pendingRequests(f.b.agent.id);
     expect(await f.h.conversation(f.c.id)).toMatchObject({
       status: 'awaiting_approval',
