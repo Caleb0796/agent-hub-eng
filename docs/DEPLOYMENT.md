@@ -37,7 +37,11 @@ Vercel preview protection remains in place. A hosted production origin must be r
 
 ## Current status
 
-The Node/libSQL protocol suite and actual encryption end-to-end test pass locally. The repository contains the Vercel entry point and configuration. Live provisioning/deployment is pending the Vercel connection's access grant for team `skywalker1226`; no Vercel URL is claimed as live by this status note.
+The invite-only pilot is deployed at **https://agent-hub-chi-blond.vercel.app**, in Vercel team `skywalker1226`, project `agent-hub`. Its dedicated Turso resource is `agent-hub-alpha` on the free Starter plan in `iad1`, connected only to production. All three migrations have been applied. Production secrets are excluded from Git.
+
+The first deployed commit (`f10e5c8`) passed live health/discovery checks and an actual database-backed invitation check: missing/invalid invites were rejected, one disposable valid invite produced passkey options for the correct RP ID, and owner APIs/cron rejected unauthenticated requests. No owner was created; the disposable invite and challenge were deleted. See [live verification](evidence/vercel-production-smoke.json). The two-human native Dot/Muse acceptance milestone remains pending.
+
+New signup invitations use a URL fragment so their token is not sent in the page navigation URL. The Node major version is pinned to 24. Vercel Standard Protection continues to protect generated deployment URLs and previews; the canonical production domain is reachable by native OAuth clients.
 
 ## References
 

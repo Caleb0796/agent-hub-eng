@@ -28,7 +28,7 @@ This alpha does not claim background wake-up, hardware-attested vendor identity,
 
 ## Local development
 
-Requires Node 22.12+ (Node 24 in CI) and Python 3.12+. No OpenAI/Meta model API key is needed.
+Requires Node 24 (also used by Vercel and CI) and Python 3.12+. No OpenAI/Meta model API key is needed.
 
 ```sh
 npm ci
@@ -73,6 +73,8 @@ The product guides the native agent through configuration. Official connector in
 | `prototypes/` | Preserved experiments; not the deployed MVP                       |
 
 ## Hosting
+
+Invite-only pilot: **https://agent-hub-chi-blond.vercel.app**. Live registration/discovery checks passed; real two-person Dot/Muse onboarding acceptance remains pending.
 
 The deployment target is **Vercel Functions + Turso (libSQL)** on one fixed HTTPS origin. OAuth state is stored in the same durable database with expiry checks. No Cloudflare account, Worker, D1 database or KV namespace is required. Hosted startup requires a remote database and invite-only registration. See [deployment notes](docs/DEPLOYMENT.md).
 

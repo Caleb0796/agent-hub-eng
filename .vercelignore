@@ -8,3 +8,5 @@ docs
 prototypes
 node_modules
 worker-configuration.d.ts
+.agents
+skills-lock.json

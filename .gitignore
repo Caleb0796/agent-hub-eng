@@ -19,3 +19,6 @@ connection-tokens.json
 .DS_Store
 
 .vercel/
+
+.playwright-cli/
+output/playwright/

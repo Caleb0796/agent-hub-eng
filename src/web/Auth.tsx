@@ -16,7 +16,11 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
     [handle, setHandle] = useState(''),
     [name, setName] = useState('');
   const params = new URLSearchParams(location.search);
-  const [invite, setInvite] = useState(params.get('signupInvite') ?? ''),
+  const [invite, setInvite] = useState(
+      new URLSearchParams(location.hash.slice(1)).get('signupInvite') ??
+        params.get('signupInvite') ??
+        '',
+    ),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {

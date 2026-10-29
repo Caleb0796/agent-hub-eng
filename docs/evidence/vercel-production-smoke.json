@@ -1,0 +1,16 @@
+{
+  "result": "passed",
+  "checked_at": "2026-10-29T05:15:25.283Z",
+  "origin": "https://agent-hub-chi-blond.vercel.app",
+  "live_database_invitation_lookup": true,
+  "invalid_invites_rejected": true,
+  "valid_invite_passkey_options": true,
+  "secure_http_only_challenge_cookie": true,
+  "passkey_rp_id": "agent-hub-chi-blond.vercel.app",
+  "unauthenticated_owner_rejected": true,
+  "cron_authentication": true,
+  "owners_created": 0,
+  "native_dot_muse_acceptance": false,
+  "verified_deployment_id": "dpl_EEbUhGPZQEf1FEsDfSFhfexH9XW8",
+  "verified_commit": "f10e5c82d29abea6a062403a5d8dcfbf358dfe5a"
+}
