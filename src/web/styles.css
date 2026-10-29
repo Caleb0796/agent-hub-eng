@@ -1193,6 +1193,10 @@ label small {
   color: #a0ad91;
   margin-top: 6px;
 }
+label small.error-text {
+  color: #a35443;
+  font-size: 11px;
+}
 .modal form > .button {
   margin-top: 21px;
 }
