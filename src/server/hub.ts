@@ -1022,6 +1022,90 @@ export class Hub {
       agents: agents.results,
       pairings: pairs.results.map((p) => this.pairView(p)),
       conversations: conversations.results.map((c) => this.conversationView(c)),
+      event_receivers: (
+        await this.connection
+          .prepare(
+            `SELECT s.agent_id,s.name,s.expires_at,
+        (SELECT MAX(d.delivered_at) FROM event_deliveries d WHERE d.subscription_id=s.id) AS last_delivery_at
+        FROM event_subscriptions s JOIN agents a ON a.id=s.agent_id
+        WHERE a.owner_id=? AND a.status='active' AND s.auth_version=a.auth_version
+        AND s.disabled_at IS NULL AND s.expires_at>?`,
+          )
+          .bind(ownerId, this.now())
+          .all()
+      ).results,
+      polling_receivers: (
+        await this.connection
+          .prepare(
+            `SELECT r.agent_id,r.kind,r.updated_at,r.expires_at
+        FROM native_receivers r JOIN agents a ON a.id=r.agent_id WHERE a.owner_id=? AND a.status='active'
+        AND r.auth_version=a.auth_version AND r.expires_at>?`,
+          )
+          .bind(ownerId, this.now())
+          .all()
+      ).results,
+    };
+  }
+
+  async receiverHeartbeat(agentId: string, kind: string, taskReference: string) {
+    const a = await this.activeAgent(agentId);
+    await this.connection
+      .prepare(
+        `INSERT INTO native_receivers(agent_id,auth_version,kind,task_reference,updated_at,expires_at)
+      VALUES(?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET auth_version=excluded.auth_version,
+      kind=excluded.kind,task_reference=excluded.task_reference,updated_at=excluded.updated_at,expires_at=excluded.expires_at`,
+      )
+      .bind(a.id, a.auth_version, kind, taskReference, this.now(), this.now() + 300)
+      .run();
+    return {
+      recorded: true,
+      evidence: 'agent-reported',
+      expires_at: this.now() + 300,
+      execution_permission_granted: false,
+    };
+  }
+
+  async pendingRequests(agentId: string) {
+    await this.activeAgent(agentId);
+    const rows = await this.connection
+      .prepare(
+        `SELECT c.* FROM conversations c JOIN pairings p ON p.id=c.pairing_id
+        JOIN agents sender ON sender.id=c.initiator_agent_id
+        JOIN users sender_owner ON sender_owner.id=sender.owner_id AND sender_owner.disabled_at IS NULL
+        WHERE p.status='active' AND sender.status='active'
+        AND c.status='awaiting_approval' AND c.expires_at>?
+        AND ((p.agent_a=? AND c.initiator_agent_id=p.agent_b
+          AND c.approval_b_json IS NOT NULL AND c.approval_a_json IS NULL)
+          OR (p.agent_b=? AND c.initiator_agent_id=p.agent_a
+          AND c.approval_a_json IS NOT NULL AND c.approval_b_json IS NULL))
+        ORDER BY c.created_at DESC,c.id DESC LIMIT 20`,
+      )
+      .bind(this.now(), agentId, agentId)
+      .all<ConversationRow>();
+    return {
+      requests: rows.results.map((c) => {
+        const policy = asJson<ConversationPolicy>(c.policy_json),
+          sender = policy.participants.find((p) => p.agent_id === c.initiator_agent_id)!;
+        return {
+          id: c.id,
+          kind: 'conversation-invitation' as const,
+          pairing_id: c.pairing_id,
+          from: {
+            agent_id: sender.agent_id,
+            agent_name: sender.agent_name,
+            owner_name: sender.owner_name,
+            platform: sender.platform,
+          },
+          scope: policy.scope,
+          duration_seconds: policy.duration_seconds,
+          max_messages: policy.max_messages,
+          created_at: c.created_at,
+          expires_at: c.expires_at,
+          review_url: `${this.publicOrigin}/sessions/${c.id}`,
+        };
+      }),
+      requires_owner_approval: true,
+      execution_permission_granted: false,
     };
   }
 

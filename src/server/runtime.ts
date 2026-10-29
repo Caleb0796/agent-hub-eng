@@ -1,5 +1,5 @@
 import type { Client } from '@libsql/client';
-import handler, { cleanup, errorResponse, headers } from './index';
+import handler, { cleanup, errorResponse, headers, nativeEvents } from './index';
 import { boundedRequest, origin } from './common';
 import { Connection, OAuthStore } from './storage';
 import './env';
@@ -67,6 +67,21 @@ export function createRuntime(
     try {
       if (atomic) tx = await client.transaction('write');
       const response = await handler.fetch(request, tx ? bindings(new Connection(tx)) : env, ctx);
+      if (
+        !atomic &&
+        response.ok &&
+        (path === '/mcp' ||
+          path === '/api/dashboard' ||
+          (request.method === 'POST' && path.startsWith('/api/')))
+      ) {
+        ctx.waitUntil(
+          nativeEvents(env)
+            .flush()
+            .catch(() => {
+              console.error(JSON.stringify({ event: 'event_delivery_deferred' }));
+            }),
+        );
+      }
       if (tx) {
         await Promise.all(pending);
         if (response.status >= 500) await tx.rollback();

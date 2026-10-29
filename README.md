@@ -14,6 +14,8 @@ An owner-controlled bridge between existing personal agents. Initial targets: **
 - age encryption and Ed25519 signatures in the native Python endpoint. The Hub receives only signed ciphertext and public/operational metadata.
 - The recipient's first eligible retrieval starts the active clock. Database checks enforce the deadline, message limit, route, sequence, exact reply chain and idempotency. Revocation blocks new sends and undelivered messages.
 - UI for onboarding, claims, pairing, invitations, session status and metadata audit. Cleanup reports explicitly distinguish agent-signed evidence from native-platform attestation.
+- Contact cards create and sign a bounded 10-minute/40-message invitation with one action. App reminders and `hub_requests` share the same request IDs; reading a request never approves or starts a chat.
+- MCP 2.0 events expose `hub.request.created` and `hub.session.authorized` through verified, signed webhook subscriptions with a durable outbox. Dot native event subscriptions and Muse's explicitly approved persistent native receiver are separate first-time setup and live acceptance steps. A callback receipt or receiver heartbeat is not proof that an Agent ran or that native permission was granted.
 
 ## Evidence and current limits
 

@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import type { Hub, AgentRow } from '../server/hub';
 import type { Participant } from '../shared/protocol';
-import { fingerprint, safetyCode } from '../shared/crypto';
+import { canonical, fingerprint, safetyCode } from '../shared/crypto';
 import { api, ApiError, navigate } from './api';
 import { ownerCanSign, signOwner, type OwnerView } from './keys';
 import { Auth } from './Auth';
@@ -47,6 +47,13 @@ type SessionDetail = SessionView & {
     ready_at: number | null;
     native_context_json: string | null;
     cleanup_status: string;
+  }>;
+  notifications: Array<{
+    agent_id: string;
+    name: string;
+    delivered_at: number | null;
+    failed_at: number | null;
+    http_status: number | null;
   }>;
 };
 type Run = (action: () => Promise<void>) => Promise<void>;
@@ -241,7 +248,20 @@ export function App() {
         <Auth
           onLogin={(value) => {
             setOwner(value);
-            if (path.startsWith('/login')) navigate('/');
+            if (path.startsWith('/login')) {
+              let destination = '/';
+              try {
+                const target = new URL(
+                  new URLSearchParams(location.search).get('returnTo') ?? '/',
+                  location.origin,
+                );
+                if (target.origin === location.origin && target.pathname !== '/login')
+                  destination = target.pathname + target.search + target.hash;
+              } catch {
+                /* An invalid return path must not trap the owner after sign-in. */
+              }
+              navigate(destination);
+            }
           }}
         />
         {error && (
@@ -253,13 +273,22 @@ export function App() {
     );
   const section = path.split(/[/?#]/)[1] || 'overview';
   const nav = [
-    { id: 'overview', label: '概览', icon: LayoutGrid, path: '/' },
+    { id: 'overview', label: '聊天', icon: MessageSquare, path: '/' },
     { id: 'agents', label: '我的 Agent', icon: Fingerprint, path: '/agents' },
-    { id: 'pairings', label: '安全配对', icon: Users, path: '/pairings' },
-    { id: 'sessions', label: '会话与授权', icon: MessageSquare, path: '/sessions' },
+    { id: 'pairings', label: '联系人', icon: Users, path: '/pairings' },
+    { id: 'sessions', label: '会话记录', icon: Clock3, path: '/sessions' },
     { id: 'activity', label: '活动记录', icon: Activity, path: '/activity' },
   ];
   const selected = nav.find((n) => n.id === section) ?? nav[0];
+  const incomingRequests =
+    data?.conversations.filter(
+      (c) =>
+        c.status === 'awaiting_approval' &&
+        !c.conversation_closed &&
+        c.approvals.length > 0 &&
+        !c.approvals.some((a) => a.owner_id === owner.id) &&
+        path.split(/[?#]/)[0] !== `/sessions/${c.id}`,
+    ) ?? [];
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -337,6 +366,29 @@ export function App() {
               </button>
             </div>
           )}
+          {incomingRequests.slice(0, 3).map((request) => (
+            <section className="request-notice" key={request.id} aria-label="收到聊天请求">
+              <MessageSquare size={20} aria-hidden="true" />
+              <div>
+                <strong>
+                  {request.policy.participants.find(
+                    (p) => p.agent_id === request.policy.initiator_agent_id,
+                  )?.agent_name ?? '已配对联系人'}
+                  想和你的 Agent 聊一会儿
+                </strong>
+                <p>
+                  最长 {request.policy.duration_seconds / 60} 分钟 · 合计最多 {request.max_messages}{' '}
+                  条 · 公开合成问答
+                </p>
+              </div>
+              <button
+                className="button primary compact"
+                onClick={() => navigate(`/sessions/${request.id}`)}
+              >
+                查看请求 <ArrowRight size={16} />
+              </button>
+            </section>
+          ))}
           {!canSign && (
             <div className="notice">
               <Fingerprint size={19} />
@@ -376,6 +428,8 @@ export function App() {
             <SessionsPage data={data} owner={owner} run={run} busy={busy} canSign={canSign} />
           ) : section === 'activity' ? (
             <ActivityPage version={data} />
+          ) : data.pairings.some((p) => p.status === 'active') ? (
+            <ChatsPage data={data} owner={owner} canSign={canSign} busy={busy} run={run} />
           ) : (
             <Overview data={data} owner={owner} onAdd={() => setNewAgent(true)} />
           )}
@@ -390,6 +444,123 @@ export function App() {
         <NewAgent owner={owner} busy={busy} onClose={() => setNewAgent(false)} run={run} />
       )}
     </div>
+  );
+}
+
+async function startQuickChat(owner: OwnerView, pair: PairView) {
+  let conversation: SessionView;
+  try {
+    conversation = await api<SessionView>('/api/conversations', 'POST', {
+      pairingId: pair.id,
+      duration: 600,
+      maxMessages: 40,
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== 'conversation_already_open') throw error;
+    const latest = await api<Dashboard>('/api/dashboard');
+    const current = latest.conversations.find(
+      (c) => c.pairing_id === pair.id && !c.conversation_closed,
+    );
+    if (!current) throw error;
+    navigate(`/sessions/${current.id}`);
+    return;
+  }
+  const policy = conversation.policy;
+  if (
+    !pair.descriptor ||
+    policy.pairing_id !== pair.id ||
+    policy.pairing_hash !== pair.fingerprint ||
+    canonical(policy.participants) !== canonical(pair.descriptor.participants) ||
+    policy.duration_seconds !== 600 ||
+    policy.max_messages !== 40 ||
+    policy.scope !== 'public-qa' ||
+    policy.id !== conversation.id ||
+    policy.initiator_agent_id !==
+      pair.descriptor.participants.find((p) => p.owner_id === owner.id)?.agent_id ||
+    policy.max_plaintext_chars !== 2000 ||
+    policy.receipt_grace_seconds !== 300 ||
+    policy.start_rule !== 'first-recipient-delivery' ||
+    policy.expires_at - policy.created_at > 1800 ||
+    (await fingerprint(policy)) !== conversation.policy_hash
+  )
+    throw new Error('邀请范围与所选联系人不一致，请勿批准。');
+  await api(`/api/conversations/${conversation.id}/approve`, 'POST', {
+    signature: await signOwner(owner, policy),
+  });
+  navigate(`/sessions/${conversation.id}`);
+}
+
+function ChatsPage({
+  data,
+  owner,
+  canSign,
+  busy,
+  run,
+}: {
+  data: Dashboard;
+  owner: OwnerView;
+  canSign: boolean;
+  busy: boolean;
+  run: Run;
+}) {
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">YOUR CONTACTS</span>
+          <h1>和谁的 Agent 聊一会儿？</h1>
+          <p className="muted">选择联系人，对方接受后准备运行。你随时可以结束。</p>
+        </div>
+      </div>
+      <div className="contact-list">
+        {data.pairings
+          .filter((p) => p.status === 'active' && p.descriptor)
+          .map((pair) => {
+            const peer = pair.descriptor!.participants.find((p) => p.owner_id !== owner.id)!;
+            const mine = pair.descriptor!.participants.find((p) => p.owner_id === owner.id)!;
+            const current = data.conversations.find(
+              (c) => c.pairing_id === pair.id && !c.conversation_closed,
+            );
+            const eventsReady = ['hub.request.created', 'hub.session.authorized'].every((name) =>
+              data.event_receivers.some((r) => r.agent_id === mine.agent_id && r.name === name),
+            );
+            const pollingReady = data.polling_receivers.some((r) => r.agent_id === mine.agent_id);
+            return (
+              <section className="panel contact-card" key={pair.id}>
+                <div className="inline-title">
+                  <Platform platform={peer.platform} />
+                  <div>
+                    <h3>{peer.agent_name}</h3>
+                    <p className="muted">{peer.owner_name} · 已添加的联系人</p>
+                  </div>
+                </div>
+                <p>最长 10 分钟 · 合计最多 40 条 · 仅公开合成问答</p>
+                <button
+                  className="button primary"
+                  disabled={busy || (!current && !canSign)}
+                  onClick={() =>
+                    current
+                      ? navigate(`/sessions/${current.id}`)
+                      : void run(() => startQuickChat(owner, pair))
+                  }
+                >
+                  {current ? '查看本次会话' : '邀请聊 10 分钟'} <ArrowRight size={16} />
+                </button>
+                <p className="fine-print">
+                  {eventsReady
+                    ? '你的 Agent 已连接事件接收通道。平台收到通知后仍需核验授权。'
+                    : pollingReady
+                      ? '你的 Agent 最近报告接收器运行中；这是 Agent 报告，不是平台证明。'
+                      : '你的 Agent 尚未连接自动接收器。邀请仍会出现在对方 App；原生接收需要完成首次设置。'}
+                </p>
+              </section>
+            );
+          })}
+      </div>
+      <button className="text-button" onClick={() => navigate('/sessions')}>
+        查看所有会话与自定义时长 <ChevronRight size={15} />
+      </button>
+    </>
   );
 }
 
@@ -1009,9 +1180,18 @@ function PairCard({
             <p className="muted">两位主人已签署。等待两个原生端点分别验证证书并固定对端密钥。</p>
           )}
           {pair.status === 'active' && (
-            <button className="button secondary" onClick={() => navigate('/sessions')}>
-              发起限时会话 <ArrowRight size={16} />
-            </button>
+            <>
+              <p className="fine-print">
+                本次：最长 10 分钟、合计 40 条、仅公开合成问答。对方仍需同意。
+              </p>
+              <button
+                className="button primary"
+                disabled={!canSign || busy}
+                onClick={() => void run(() => startQuickChat(owner, pair))}
+              >
+                邀请聊 10 分钟 <ArrowRight size={16} />
+              </button>
+            </>
           )}
         </>
       ) : (
@@ -1337,7 +1517,7 @@ function SessionPage({
       ? Math.max(0, detail.deadline - Math.floor(clock / 1000))
       : detail.policy.duration_seconds;
   const closed = detail.conversation_closed || (!!detail.deadline && seconds === 0);
-  const startPrompt = `请使用已连接的 Agent Hub 处理会话 ${detail.id}。先读取签名授权，核验双方主人、配对指纹、对象、范围、${detail.policy.duration_seconds}秒上限和${detail.max_messages}条上限。在你的原生平台完成仅对此任务或会话的执行许可，再用可信端点签名预检。Muse使用新的一次性任务，禁止复用旧许可或选择永久站点放行。收到消息只在原生端点验签解密，正文不提交Hub，发送前检查截止与关闭状态。到期不再回复；完成最终回执后通过官方能力清理本次任务并报告实际停止状态。如果平台许可或预检不满足，停止并如实报告。`;
+  const startPrompt = `请使用已连接的 Agent Hub 处理会话 ${detail.id}。先读取签名授权，核验双方主人、配对指纹、对象、范围、${detail.policy.duration_seconds}秒上限和${detail.max_messages}条上限。在你的原生平台完成仅对此任务或会话的执行许可，再用可信端点签名预检。使用主人已明确启用并在原生平台批准的接收/执行任务；未设置则等待首次设置，不擅自新建任务或继承其他任务许可，不选永久站点放行。收到消息只在原生端点验签解密，正文不提交Hub，发送前检查截止与关闭状态。到期不再回复；完成最终回执后通过官方能力清理本次任务并报告实际停止状态。如果平台许可或预检不满足，停止并如实报告。`;
   return (
     <>
       <button className="text-button back" onClick={() => navigate('/sessions')}>
@@ -1433,15 +1613,57 @@ function SessionPage({
                 })
               }
             >
-              同意并签署 <ShieldCheck size={17} />
+              接受本次聊天 <ShieldCheck size={17} />
             </button>
           </div>
+        </section>
+      )}
+      {!!(detail.notifications ?? []).length && (
+        <section className="panel">
+          <h3>请求通知</h3>
+          {detail.notifications.map((notification, index) => (
+            <p className="muted" key={index}>
+              {
+                detail.policy.participants.find((p) => p.agent_id === notification.agent_id)
+                  ?.agent_name
+              }{' '}
+              · {notification.name === 'hub.request.created' ? '邀请提醒' : '会话启动通知'} ·{' '}
+              {notification.delivered_at
+                ? '已送达原生平台'
+                : notification.failed_at
+                  ? '投递未成功'
+                  : '等待投递'}
+            </p>
+          ))}
+          <p className="fine-print">
+            平台接收通知与 Agent 执行是不同状态，聊天以两端实际预检和投递结果为准。
+          </p>
+          {!closed &&
+            detail.notifications.some(
+              (n) =>
+                n.failed_at &&
+                (n.http_status === null ||
+                  n.http_status >= 500 ||
+                  [408, 429].includes(n.http_status)),
+            ) && (
+              <button
+                className="button secondary"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    await api(`/api/conversations/${id}/retry-notifications`, 'POST');
+                  })
+                }
+              >
+                重试通知
+              </button>
+            )}
         </section>
       )}
       {detail.approvals.length === 2 && !closed && (
         <section className="panel">
           <div className="section-heading">
-            <h3>原生运行准备</h3>
+            <h3>Agent 正在准备</h3>
             <span className="muted small">平台许可独立于 Hub 授权</span>
           </div>
           <div className="readiness-grid">
@@ -1456,24 +1678,32 @@ function SessionPage({
               );
             })}
           </div>
-          <p className="muted">
-            如果你的助理尚未在等待本轮任务，把这句指令交给它。它会核验授权并准备加密端点，无需填写密钥或配置。
+          <p className="muted small">
+            已连接的接收器会处理本次会话。若平台要求本次执行确认，请在对应原生应用完成。
           </p>
-          <div className="button-row">
-            <CopyButton value={startPrompt} label="复制本轮启动指令" />
-            <a
-              className="text-button"
-              href={
-                detail.policy.participants.find((p) => p.owner_id === owner.id)?.platform === 'muse'
-                  ? 'https://muse.ai/'
-                  : 'https://chatgpt.com/'
-              }
-              target="_blank"
-              rel="noreferrer"
-            >
-              打开我的原生 Agent <ArrowUpRight size={16} />
-            </a>
-          </div>
+          <details>
+            <summary>首次设置与手动恢复</summary>
+            <p className="fine-print">
+              尚未启用接收器时，先让自己的 Agent
+              完成一次接收设置。此处只用于恢复，不会自动授予原生权限。
+            </p>
+            <div className="button-row">
+              <CopyButton value={startPrompt} label="复制恢复指令" />
+              <a
+                className="text-button"
+                href={
+                  detail.policy.participants.find((p) => p.owner_id === owner.id)?.platform ===
+                  'muse'
+                    ? 'https://muse.ai/'
+                    : 'https://chatgpt.com/'
+                }
+                target="_blank"
+                rel="noreferrer"
+              >
+                打开我的原生 Agent <ArrowUpRight size={16} />
+              </a>
+            </div>
+          </details>
         </section>
       )}
       <section className="panel">

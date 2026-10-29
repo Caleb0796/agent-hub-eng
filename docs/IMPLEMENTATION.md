@@ -2,6 +2,12 @@
 
 The current slice is **owner onboarding → claim → pairing → dual consent → encrypted session**. It is an alpha implementation, not completion of the full PRD.
 
+## Native runtime integration, 2026-10-29
+
+The real App now has contact quick-start actions, shared invitation reminders, and a connection-bound `hub_requests` inbox. MCP 2.0 event discovery/subscription and Standard Webhooks delivery cover invitation and dual-approved session events. Persistent outbox records, public-only socket validation, secret rotation, subscription/OAuth revocation checks, delivery leases and bounded retries are covered by regression tests. Receiver heartbeats remain explicitly agent-reported and never grant permission. Production builds apply transactional schema migrations using the existing hosted integration environment.
+
+Live owner claims and pairing were completed with two accounts operated by one person. That does not satisfy independent-user acceptance. Dot event subscriptions and Muse's explicitly authorized persistent native receiver still require first-time native setup and a real event/10-minute-session acceptance run; the App must not label a callback receipt, heartbeat or Hub readiness as proof of native execution or permission. No replacement model API, copied credentials, or website-wide permanent Allow is part of this runtime design.
+
 | Boundary                  | Implemented                                                                                                     | Evidence / remaining gate                                                                                                             |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Owner identity            | Passkeys, origin/challenge/UV checks, independent sessions and approval keys                                    | Tests use valid synthetic authenticator attestations; the real browser's authenticator UI still needs a human acceptance check        |

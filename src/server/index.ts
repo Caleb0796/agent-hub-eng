@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import api from './api';
 import auth from './auth';
-import { provider, oauthRoutes, AuthorizationError, CimdFetchError } from './oauth';
+import { provider, oauthApi, oauthRoutes, AuthorizationError, CimdFetchError } from './oauth';
 import {
   boundedRequest,
   db,
@@ -16,13 +16,14 @@ import { Hub } from './hub';
 import { idSchema, signatureSchema } from '../shared/protocol';
 import onboarding from './onboarding';
 import { defaultCsp } from './security';
+import { NativeEvents } from './events';
 
 const app = new Hono<{ Bindings: HubBindings }>();
 app.route('/api/auth', auth);
 app.route('/api', api);
 app.route('/', oauthRoutes);
 app.route('/', onboarding);
-app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.1.0' }));
+app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.2.0' }));
 app.get('/api/cron/cleanup', async (c) => {
   const expected = c.env.CRON_SECRET;
   if (!expected || c.req.header('Authorization') !== `Bearer ${expected}`)
@@ -55,6 +56,14 @@ app.get('/.well-known/agent-hub.json', (c) =>
     guides: {
       dot: `${c.env.PUBLIC_ORIGIN}/connect/dot`,
       muse: `${c.env.PUBLIC_ORIGIN}/connect/muse`,
+    },
+    receiving: {
+      requests_tool: 'hub_requests',
+      heartbeat_tool: 'hub_receiver_heartbeat',
+      events: ['hub.request.created', 'hub.session.authorized'],
+      event_methods: ['events/list', 'events/subscribe', 'events/unsubscribe'],
+      first_native_setup_required: true,
+      notification_is_not_execution_permission: true,
     },
   }),
 );
@@ -145,6 +154,33 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+export function nativeEvents(env: Env): NativeEvents {
+  const api = oauthApi(env);
+  return new NativeEvents(
+    new Hub(db(env), env.PUBLIC_ORIGIN),
+    undefined,
+    async (agentId, grantId, clientId) => {
+      if (!(await api.lookupClient(clientId))) return false;
+      let cursor: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const result = await api.listUserGrants(agentId, { limit: 100, cursor });
+        const grant = result.items.find((g) => g.id === grantId && g.clientId === clientId);
+        if (grant)
+          return (
+            grant.scope.includes('agent:read') &&
+            (!grant.expiresAt || grant.expiresAt > nowSeconds()) &&
+            (Array.isArray(grant.resource) ? grant.resource : [grant.resource]).includes(
+              `${env.PUBLIC_ORIGIN}/mcp`,
+            )
+          );
+        cursor = result.cursor;
+        if (!cursor) return false;
+      }
+      return false;
+    },
+  );
+}
+
 export async function cleanup(env: Env): Promise<void> {
   const at = nowSeconds(),
     connection = db(env);
@@ -166,4 +202,15 @@ export async function cleanup(env: Env): Promise<void> {
   ]);
   // Actual native task state is never invented by this cleanup job.
   await provider(env, app).purgeExpiredData(env as HubBindings, { batchSize: 100 });
+  await nativeEvents(env).flush();
+  await connection.batch([
+    connection
+      .prepare(
+        'DELETE FROM event_deliveries WHERE delivered_at<? OR failed_at<? OR subscription_id IN (SELECT id FROM event_subscriptions WHERE expires_at<? OR disabled_at<?)',
+      )
+      .bind(at - 604800, at - 604800, at - 86400, at - 86400),
+    connection
+      .prepare('DELETE FROM event_subscriptions WHERE expires_at<? OR disabled_at<?')
+      .bind(at - 86400, at - 86400),
+  ]);
 }

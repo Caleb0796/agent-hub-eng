@@ -5,6 +5,8 @@ import {
   CimdFetchError,
   OAuthError,
   OAuthProvider,
+  getOAuthApi,
+  type OAuthProviderOptions,
   type OAuthResourceContext,
 } from '@cloudflare/workers-oauth-provider';
 import { z } from 'zod';
@@ -201,8 +203,22 @@ export function provider(
   env: Env,
   defaultHandler: ExportedHandler<HubBindings>,
 ): OAuthProvider<HubBindings> {
+  return new OAuthProvider<HubBindings>(providerOptions(env, defaultHandler));
+}
+
+export function oauthApi(env: Env) {
+  return getOAuthApi(
+    providerOptions(env, { fetch: () => new Response(null, { status: 404 }) }),
+    env as HubBindings,
+  );
+}
+
+function providerOptions(
+  env: Env,
+  defaultHandler: ExportedHandler<HubBindings>,
+): OAuthProviderOptions<HubBindings> {
   const issuer = origin(env).origin;
-  return new OAuthProvider<HubBindings>({
+  return {
     apiRoute: '/mcp',
     apiHandler: {
       fetch: (request, bindings, ctx) =>
@@ -256,7 +272,7 @@ export function provider(
         }),
       );
     },
-  });
+  };
 }
 
 export { AuthorizationError, CimdFetchError };

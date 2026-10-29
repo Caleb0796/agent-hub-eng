@@ -10,7 +10,7 @@ The local template uses a disposable SQLite file, `APP_ENV=development`, `SIGNUP
 2. Create/link the `agent-hub` project in the owner's Vercel team. Confirm the exact project with `vercel project inspect --non-interactive` from this repository.
 3. Provision the Marketplace `tursocloud/database` integration on the **Starter ($0/month)** plan, region `iad1`, scoped to production. The owner may need to accept the provider's native terms. Use a separate database for previews if preview testing is needed; never attach production data to arbitrary preview branches.
 4. Confirm `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` were injected. Configure the exact fixed HTTPS `PUBLIC_ORIGIN`, `SIGNUP_MODE=invite`, and a random secret `CRON_SECRET`. Do not print tokens or commit pulled environment files. `APP_ENV` is forced to production whenever Vercel hosts the function.
-5. Pull production environment values to a dedicated ignored file. Apply migrations to the intended new database using `node --env-file=<ignored-file> scripts/migrate.mjs`. Migrations are versioned and transactional. They are **not** run on function cold starts.
+5. Production builds run `scripts/migrate-deploy.mjs` using the existing Vercel integration environment. Only `VERCEL_ENV=production` applies versioned transactional migrations; previews skip them. Credentials remain within the hosted build, without downloading or printing production secrets. Migrations are **not** run on function cold starts.
 6. Deploy the checked commit. Verify the stable origin's UI, assets, health, OAuth discovery, invitation gate, unauthenticated API rejection, and cron authentication before distributing invitations.
 7. Generate short-lived, single-use sign-up invitations; store only hashes in `signup_invites`. Share them explicitly with selected testers. Never commit invitation tokens.
 8. Complete the two-human native acceptance test in `IMPLEMENTATION.md`, including refusal, wrong account, changed key, revocation and cleanup.
@@ -28,6 +28,8 @@ The upstream MIT OAuth provider remains pinned. A narrow Node adapter replaces i
 OAuth record deletion is not the sole revocation mechanism: every MCP call rechecks the Agent's owner, status and authorization version. Message authorization and quota are checked transactionally at insertion. Vercel's trusted forwarding header supplies the rate-limit source; local development is loopback-only.
 
 A daily authenticated cron performs housekeeping. Read/send paths enforce expiry immediately even if cron is late. The cron cannot terminate a native Muse task itself. Native cleanup still uses official native capabilities and a scoped signed report.
+
+MCP 2.0 event subscriptions use verified HTTPS callbacks, public-only socket DNS checks, no redirects and Standard Webhooks signatures. Invitation/authorization notifications contain only bounded request metadata. A durable outbox is reconciled and dispatched after successful owner/MCP activity, dashboard refreshes and housekeeping; transient failures use bounded backoff, terminal callbacks stop retrying, and expired or revoked subscriptions stop delivery. No extra paid queue or minute-level Vercel cron is provisioned. Delivery is best effort with persisted retry state, not a real-time SLA; a `2xx` means platform receipt, not Agent execution. ChatGPT supplies its actual callback and signing secret during native subscription setup; neither is copied into user messages or source control.
 
 ## Native OAuth acceptance
 

@@ -77,3 +77,38 @@ export async function fetch(
     headers: Object.fromEntries(response.headers),
   });
 }
+
+export function webhookUrl(input: string): URL {
+  const url = new URL(input);
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    (url.port && url.port !== '443') ||
+    url.href.length > 2048
+  )
+    throw new Error('Invalid webhook URL');
+  // Literal addresses are rejected before dispatch; DNS is validated again on the actual socket.
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (ipaddr.isValid(host) && !isPublicAddress(host)) throw new Error('Non-public webhook URL');
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local'))
+    throw new Error('Non-public webhook URL');
+  return url;
+}
+
+/** Event callbacks use the same public-only socket lookup, with POST and no redirects. */
+export async function webhookFetch(input: string, init: RequestInit): Promise<Response> {
+  const response = await httpFetch(webhookUrl(input), {
+    method: 'POST',
+    headers: Object.fromEntries(new globalThis.Headers(init.headers)),
+    body: typeof init.body === 'string' ? init.body : undefined,
+    signal: AbortSignal.timeout(3000),
+    redirect: 'error',
+    dispatcher,
+  });
+  return new Response(response.body as unknown as ReadableStream, {
+    status: response.status,
+    headers: Object.fromEntries(response.headers),
+  });
+}

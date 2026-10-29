@@ -11,6 +11,7 @@ import {
   type HubContext,
 } from './common';
 import { Hub } from './hub';
+import { NativeEvents } from './events';
 
 const router = new Hono<{ Bindings: HubBindings }>();
 const hub = (c: HubContext) => new Hub(db(c.env), c.env.PUBLIC_ORIGIN);
@@ -28,6 +29,7 @@ router.get('/me', async (c) =>
       mode: 'private-alpha',
       ownerRecovery: false,
       backgroundWake: false,
+      nativeEvents: true,
       privateHistory: false,
     },
   }),
@@ -140,6 +142,11 @@ router.post('/conversations/:id/decline', async (c) =>
     ),
   ),
 );
+router.post('/conversations/:id/retry-notifications', async (c) => {
+  const u = await owner(c, { write: true });
+  await rateLimit(c.env, `retry-notification:${u.id}`, 20, 3600);
+  return c.json(await new NativeEvents(hub(c)).retry(u.id, idSchema.parse(c.req.param('id'))));
+});
 router.get('/conversations/:id', async (c) => {
   const u = await owner(c),
     h = hub(c),
@@ -161,6 +168,16 @@ router.get('/conversations/:id', async (c) => {
     ...h.conversationView(row),
     messages: messages.results,
     readiness: readiness.results,
+    notifications: (
+      await h.connection
+        .prepare(
+          `SELECT s.agent_id,s.name,d.delivered_at,d.failed_at,d.http_status
+      FROM event_deliveries d JOIN event_subscriptions s ON s.id=d.subscription_id
+      WHERE d.conversation_id=? ORDER BY d.id`,
+        )
+        .bind(id)
+        .all()
+    ).results,
     server_time: nowSeconds(),
   });
 });
