@@ -156,7 +156,12 @@ export class NativeEvents {
       agent = await this.hub.activeAgent(agentId);
     if (input.arguments.pairing_id) {
       const pair = await this.hub.pair(input.arguments.pairing_id, undefined, agentId);
-      ensure(pair.status === 'active', 'pairing_not_ready', 409, '配对尚未完成');
+      ensure(
+        ['awaiting_endpoints', 'active'].includes(pair.status),
+        'pairing_not_ready',
+        409,
+        '配对尚未完成',
+      );
     }
     let url: string;
     try {
