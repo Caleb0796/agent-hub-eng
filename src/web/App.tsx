@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -24,8 +32,10 @@ import {
 import type { Hub, AgentRow } from '../server/hub';
 import type { Participant } from '../shared/protocol';
 import { canonical, fingerprint, safetyCode } from '../shared/crypto';
+import { validateOwnerPayload } from '../shared/authorization';
 import { api, ApiError, navigate } from './api';
-import { ownerCanSign, signOwner, type OwnerView } from './keys';
+import { ownerCanSign, replaceApprovalKey, signOwner, type OwnerView, type SignMode } from './keys';
+import { claimChoices } from './claim';
 import { Auth } from './Auth';
 
 type Dashboard = Awaited<ReturnType<Hub['dashboard']>>;
@@ -171,8 +181,9 @@ export function App() {
   const [path, setPath] = useState(location.pathname + location.search + location.hash),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
-    [canSign, setCanSign] = useState(false),
+    [signMode, setSignMode] = useState<SignMode>('none'),
     [newAgent, setNewAgent] = useState(false);
+  const canSign = signMode !== 'none';
   const requestVersion = useRef(0);
   useEffect(() => {
     const onRoute = () => setPath(location.pathname + location.search + location.hash);
@@ -213,7 +224,7 @@ export function App() {
   useEffect(() => {
     if (!owner) return;
     void refresh();
-    void ownerCanSign(owner).then(setCanSign);
+    void ownerCanSign(owner).then(setSignMode);
     const timer = setInterval(() => void refresh(), 5000);
     return () => clearInterval(timer);
   }, [owner, refresh]);
@@ -417,13 +428,7 @@ export function App() {
             </section>
           ))}
           {!canSign && (
-            <div className="notice">
-              <Fingerprint size={19} />
-              <div>
-                <strong>当前浏览器可以查看，暂不能签署授权。</strong>
-                <p>请回到注册时使用的浏览器完成认领、配对和会话批准。登录不会替换授权密钥。</p>
-              </div>
-            </div>
+            <ApprovalKeyNotice owner={owner} run={run} busy={busy} onReplaced={setOwner} />
           )}
           {!data ? (
             <div className="skeleton" aria-label="正在加载连接" />
@@ -435,6 +440,7 @@ export function App() {
               busy={busy}
               run={run}
               data={data}
+              onOwnerChange={setOwner}
             />
           ) : section === 'pair' ? (
             <JoinPair owner={owner} data={data} run={run} busy={busy} />
@@ -835,6 +841,56 @@ function NewAgent({
   );
 }
 
+function ApprovalKeyNotice({
+  owner,
+  run,
+  busy,
+  onReplaced,
+}: {
+  owner: OwnerView;
+  run: Run;
+  busy: boolean;
+  onReplaced: (owner: OwnerView) => void;
+}) {
+  return (
+    <div className="notice">
+      <Fingerprint size={19} />
+      <div>
+        <strong>当前浏览器没有你的授权密钥，暂不能签署认领、配对或会话。</strong>
+        {owner.approvalKeyReplaceable ? (
+          <>
+            <p>
+              账号还没有完成认领的 Agent
+              或配对，可以在这个浏览器重置授权密钥。支持的设备会改用通行密钥派生的密钥，以后换设备也能签名。
+            </p>
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  confirm(
+                    '重置后，所有尚未完成认领的接入都会被撤销。之后请重新创建连接，并让原生 Agent 使用新的端点状态目录。要继续吗？',
+                  )
+                )
+                  void run(async () => {
+                    onReplaced(await replaceApprovalKey(owner, { fallback: true }));
+                  });
+              }}
+            >
+              <RefreshCw size={16} /> 在此浏览器重置授权密钥
+            </button>
+          </>
+        ) : (
+          <p>
+            这个账号已有完成认领的 Agent
+            或配对，授权密钥不能更换。请回到注册时使用的浏览器完成操作。
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AgentPage({
   id,
   owner,
@@ -842,6 +898,7 @@ function AgentPage({
   busy,
   run,
   data,
+  onOwnerChange,
 }: {
   id: string;
   owner: OwnerView;
@@ -849,10 +906,33 @@ function AgentPage({
   busy: boolean;
   run: Run;
   data: Dashboard;
+  onOwnerChange: (owner: OwnerView) => void;
 }) {
   const [detail, setDetail] = useState<AgentDetail | null>(null),
-    [checked, setChecked] = useState(false),
+    [realCode, setRealCode] = useState<string | null>(null),
+    [claimError, setClaimError] = useState(''),
+    [mismatch, setMismatch] = useState(false),
     [loadError, setLoadError] = useState('');
+  const claimPayload = detail?.status === 'awaiting_claim' ? detail.claim_payload : null;
+  // Derive the code from the exact payload that will be signed, never from server text.
+  useEffect(() => {
+    let live = true;
+    setRealCode(null);
+    setClaimError('');
+    if (!claimPayload) return;
+    validateOwnerPayload(owner.id, owner.signingKey, claimPayload).then(
+      () => live && setRealCode(safetyCode(claimPayload.fingerprint)),
+      (e) => live && setClaimError(e instanceof Error ? e.message : '认领内容无效，请勿认领'),
+    );
+    return () => {
+      live = false;
+    };
+  }, [canonical(claimPayload ?? null), owner.id, owner.signingKey]);
+  const choices = useMemo(() => (realCode ? claimChoices(realCode) : []), [realCode]);
+  const revoke = () =>
+    void run(async () => {
+      await api(`/api/agents/${id}/revoke`, 'POST');
+    });
   useEffect(() => {
     let live = true;
     api<AgentDetail>(`/api/agents/${id}`)
@@ -932,29 +1012,57 @@ function AgentPage({
         <section className="panel claim-panel">
           <span className="eyebrow">OWNER CLAIM</span>
           <h2>确认这是你刚刚连接的 Agent。</h2>
-          <p className="muted">请与原生 Agent 显示的安全码逐组核对。完全一致后再认领。</p>
-          <div className="safety-code">{detail.safety_code}</div>
-          <label className="check-label">
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(e) => setChecked(e.target.checked)}
-            />
-            安全码与我的原生 Agent 显示一致
-          </label>
-          <button
-            className="button primary"
-            disabled={!checked || !canSign || busy}
-            onClick={() =>
-              void run(async () => {
-                const signature = await signOwner(owner, detail.claim_payload);
-                await api(`/api/agents/${id}/claim`, 'POST', { signature });
-              })
-            }
-          >
-            <ShieldCheck size={18} />
-            签署并认领
-          </button>
+          <p className="muted">
+            点选与你的原生 Agent 显示<strong>完全一致</strong>
+            的那组安全码，点中即签署认领。若都不一致，说明公钥可能被调换，请撤销连接。
+          </p>
+          {claimError ? (
+            <div className="error">{claimError}</div>
+          ) : mismatch ? (
+            <div className="error" role="alert">
+              你选的安全码与这个连接不一致，认领已停止。请不要继续，撤销这个连接后重新接入。
+              <div className="button-row">
+                <button className="button secondary" disabled={busy} onClick={revoke}>
+                  <Unplug size={16} /> 撤销这个连接
+                </button>
+              </div>
+            </div>
+          ) : !canSign ? (
+            <ApprovalKeyNotice owner={owner} run={run} busy={busy} onReplaced={onOwnerChange} />
+          ) : (
+            <>
+              <div className="claim-choices">
+                {choices.map((code) => (
+                  <button
+                    key={code}
+                    className="safety-code claim-choice"
+                    disabled={busy}
+                    onClick={() => {
+                      if (code !== realCode) {
+                        setMismatch(true);
+                        return;
+                      }
+                      void run(async () => {
+                        const signature = await signOwner(owner, claimPayload);
+                        await api(`/api/agents/${id}/claim`, 'POST', { signature });
+                      });
+                    }}
+                  >
+                    {code}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="text-button danger"
+                disabled={busy}
+                onClick={() => {
+                  if (confirm('三组安全码都与 Agent 显示的不一致？这个连接将被撤销。')) revoke();
+                }}
+              >
+                <X size={16} /> 都不一致
+              </button>
+            </>
+          )}
         </section>
       )}
       {detail.status === 'awaiting_confirmation' && (

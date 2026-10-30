@@ -10,6 +10,7 @@ import {
   bindOwnerKey,
   draftOwnerKey,
   handleOwnerKey,
+  replaceApprovalKey,
   saveHandleOwnerKey,
   type OwnerView,
 } from './keys';
@@ -52,7 +53,8 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
     [inviteValid, setInviteValid] = useState<boolean | undefined>(),
     [support, setSupport] = useState<Support>('checking'),
     [error, setError] = useState(''),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [stage, setStage] = useState('');
   const draft = useRef<Awaited<ReturnType<typeof draftOwnerKey>>>(undefined);
 
   useEffect(() => {
@@ -119,6 +121,21 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
         });
         // The invitation is consumed; keep it out of the address bar and history.
         history.replaceState(null, '', location.pathname + location.search);
+        // Upgrade to a passkey-derived approval key so other devices can sign too.
+        // On any failure the browser-held key above stays valid.
+        if (response.clientExtensionResults.prf?.enabled !== false) {
+          setStage('再确认一次通行密钥，用于启用跨设备签名…');
+          try {
+            result = {
+              owner: await replaceApprovalKey(result.owner, {
+                credentialId: response.id,
+                fallback: false,
+              }),
+            };
+          } catch {
+            // Unsupported or cancelled: signing remains limited to this browser.
+          }
+        }
       } else {
         const setup = await api<{ options: PublicKeyCredentialRequestOptionsJSON }>(
           '/api/auth/login/options',
@@ -138,6 +155,7 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
       setError(passkeyError(err, mode));
     } finally {
       setBusy(false);
+      setStage('');
     }
   }
   return (
@@ -243,15 +261,18 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
                 <div className="notice">
                   <ShieldCheck size={19} />
                   <div>
-                    <strong>授权密钥只保存在这个浏览器。</strong>
-                    <p>之后的认领、配对和会话批准都要在这个浏览器完成；换设备登录只能查看。</p>
+                    <strong>请在你日常使用的浏览器中注册，不要使用 App 内置浏览器。</strong>
+                    <p>
+                      注册时会请你确认两次通行密钥。设备支持时，授权密钥由通行密钥派生，换设备也能签名；不支持时只能在这个浏览器签名。
+                    </p>
                   </div>
                 </div>
               </>
             )}
             {mode === 'login' && params.get('returnTo') && (
               <p className="muted">
-                第一次使用？请先选择“创建账号”，注册完成后会自动回到授权页面。
+                第一次使用？请先选择“创建账号”，注册完成后会自动回到授权页面。如果这是 App
+                内置的浏览器，请复制链接到日常使用的浏览器中打开。
               </p>
             )}
             {unsupported && (
@@ -276,7 +297,7 @@ export function Auth({ onLogin }: { onLogin: (owner: OwnerView) => void }) {
             >
               <Fingerprint size={19} />
               {busy
-                ? '正在等待设备确认…'
+                ? stage || '正在等待设备确认…'
                 : mode === 'register'
                   ? '用通行密钥创建账号'
                   : '用通行密钥登录'}

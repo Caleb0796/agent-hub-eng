@@ -5,7 +5,7 @@ import {
   db,
   nowSeconds,
   owner,
-  publicOwner,
+  ownerView,
   rateLimit,
   type HubBindings,
   type HubContext,
@@ -23,7 +23,7 @@ router.use('*', async (c, next) => {
 });
 router.get('/me', async (c) =>
   c.json({
-    owner: publicOwner(await owner(c)),
+    owner: await ownerView(db(c.env), (await owner(c)).id),
     features: {
       platforms: ['dot', 'muse'],
       mode: 'private-alpha',

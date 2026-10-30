@@ -80,6 +80,8 @@ export interface Owner {
   handle: string;
   display_name: string;
   signing_key: string;
+  approval_key_kind: 'browser' | 'passkey-prf';
+  approval_credential_id: string | null;
   authenticated_at: number;
   session_hash: string;
   csrf_hash: string;
@@ -98,7 +100,7 @@ export async function owner(
   const sessionHash = await sha256(cookie);
   const row = await db(c.env)
     .prepare(
-      `SELECT u.id,u.handle,u.display_name,u.signing_key,s.authenticated_at,s.token_hash AS session_hash,s.csrf_hash
+      `SELECT u.id,u.handle,u.display_name,u.signing_key,u.approval_key_kind,u.approval_credential_id,s.authenticated_at,s.token_hash AS session_hash,s.csrf_hash
     FROM browser_sessions s JOIN users u ON u.id=s.user_id
     WHERE s.token_hash=? AND s.expires_at>? AND u.disabled_at IS NULL`,
     )
@@ -167,17 +169,54 @@ export async function rateLimit(
   ensure(row && row.count <= limit, 'rate_limited', 429, '操作过于频繁，请稍后重试');
 }
 
-export function publicOwner(value: Owner): {
+export type OwnerView = {
   id: string;
   handle: string;
   name: string;
   signingKey: string;
-} {
+  approvalKeyKind: 'browser' | 'passkey-prf';
+  approvalCredentialId: string | null;
+  approvalKeyReplaceable: boolean;
+};
+
+// An approval key can be replaced only while no claimed Agent or live pairing has pinned it.
+export async function approvalKeyReplaceable(connection: Connection, userId: string) {
+  const row = await connection
+    .prepare(
+      `SELECT EXISTS(SELECT 1 FROM agents WHERE owner_id=? AND status IN ('awaiting_confirmation','active'))
+        OR EXISTS(SELECT 1 FROM pairings WHERE (owner_a=? OR owner_b=?) AND status NOT IN ('revoked','expired')) AS locked`,
+    )
+    .bind(userId, userId, userId)
+    .first<{ locked: number }>();
+  return !row?.locked;
+}
+
+export async function ownerView(connection: Connection, userId: string): Promise<OwnerView> {
+  const user = await connection
+    .prepare(
+      'SELECT id,handle,display_name,signing_key,approval_key_kind,approval_credential_id FROM users WHERE id=?',
+    )
+    .bind(userId)
+    .first<
+      Pick<
+        Owner,
+        | 'id'
+        | 'handle'
+        | 'display_name'
+        | 'signing_key'
+        | 'approval_key_kind'
+        | 'approval_credential_id'
+      >
+    >();
+  ensure(user, 'login_required', 401, '登录已失效，请重新登录');
   return {
-    id: value.id,
-    handle: value.handle,
-    name: value.display_name,
-    signingKey: value.signing_key,
+    id: user.id,
+    handle: user.handle,
+    name: user.display_name,
+    signingKey: user.signing_key,
+    approvalKeyKind: user.approval_key_kind,
+    approvalCredentialId: user.approval_credential_id,
+    approvalKeyReplaceable: await approvalKeyReplaceable(connection, user.id),
   };
 }
 

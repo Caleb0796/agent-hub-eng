@@ -855,6 +855,24 @@ p {
   margin: 20px 0;
   overflow-wrap: anywhere;
 }
+.claim-choices {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 12px;
+}
+.claim-choices .claim-choice {
+  width: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.claim-choices .claim-choice:hover:not(:disabled) {
+  border-color: #577e52;
+  background: #e6efdd;
+}
+.claim-choices .claim-choice:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 .safety-code {
   padding: 24px 20px;
   background: #eff4e9;

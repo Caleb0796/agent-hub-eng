@@ -22,6 +22,7 @@ describe('passkey owner authentication', () => {
       options: PublicKeyCredentialCreationOptionsJSON;
       signingChallenge: { user_id: string };
     }>();
+    expect(setup.options.extensions).toMatchObject({ prf: {} });
     const payload = {
       response: device.register(setup.options.challenge),
       signingProof: await signPayload(signer.privateKey, setup.signingChallenge),
