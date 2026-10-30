@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { env, server } from './runtime';
 import { keyPair, registeredAgent, seedOwner, type TestOwner } from './helpers';
 import { Browser } from './support/passkey-device';
@@ -105,6 +105,43 @@ describe('owner approval key replacement', () => {
       (await accepted.json<{ owner: { approvalKeyKind: string; approvalCredentialId: string } }>())
         .owner,
     ).toMatchObject({ approvalKeyKind: 'passkey-prf', approvalCredentialId: credential });
+  });
+
+  it('keeps a claim that completes between the replacement check and transaction', async () => {
+    const u = await seedOwner('ClaimRace'),
+      pending = await pendingAgent(u),
+      { body } = await replacement(u);
+    const enrollment = await env.DB.prepare(
+      'SELECT claim_payload_json FROM enrollments WHERE agent_id=?',
+    )
+      .bind(pending.id)
+      .first<{ claim_payload_json: string }>();
+    const claimSignature = await signPayload(
+      u.key.privateKey,
+      JSON.parse(enrollment!.claim_payload_json),
+    );
+    const batch = env.DB.batch.bind(env.DB);
+    const interleaving = vi
+      .spyOn(env.DB, 'batch')
+      .mockImplementationOnce(
+        async <T = Record<string, unknown>>(statements: Parameters<typeof env.DB.batch>[0]) => {
+          await hub().ownerClaim(u.id, pending.id, claimSignature);
+          return batch<T>(statements);
+        },
+      );
+    try {
+      const response = await browserFor(u).post('/api/auth/approval-key', body);
+      expect(response.status).toBe(409);
+      expect((await response.json<{ error: string }>()).error).toBe('approval_key_locked');
+      expect(await hub().agent(pending.id)).toMatchObject({
+        status: 'awaiting_confirmation',
+        auth_version: pending.auth_version,
+      });
+      const owner = await hub().user(u.id);
+      expect(owner.signing_key).toBe(u.key.publicKey);
+    } finally {
+      interleaving.mockRestore();
+    }
   });
 
   it('refuses once a claimed Agent has pinned the key, in the API and the database', async () => {

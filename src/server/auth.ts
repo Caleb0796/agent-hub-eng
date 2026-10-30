@@ -455,14 +455,16 @@ router.post('/approval-key', async (c) => {
     '已有完成认领的 Agent 或配对，不能更换授权密钥',
   );
   const pending = await connection
-    .prepare("SELECT id FROM agents WHERE owner_id=? AND status<>'revoked'")
+    .prepare(
+      "SELECT id FROM agents WHERE owner_id=? AND status IN ('awaiting_connection','awaiting_endpoint','awaiting_claim')",
+    )
     .bind(user.id)
     .all<{ id: string }>();
   try {
     await connection.batch([
       connection
         .prepare(
-          "UPDATE agents SET status='revoked',revoked_at=?,updated_at=?,auth_version=auth_version+1 WHERE owner_id=? AND status<>'revoked'",
+          "UPDATE agents SET status='revoked',revoked_at=?,updated_at=?,auth_version=auth_version+1 WHERE owner_id=? AND status IN ('awaiting_connection','awaiting_endpoint','awaiting_claim')",
         )
         .bind(at, at, user.id),
       connection
