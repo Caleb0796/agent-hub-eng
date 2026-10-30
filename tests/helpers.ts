@@ -80,7 +80,7 @@ export async function registeredAgent(h: Hub, u: TestOwner, platform: Platform) 
   return { agent: await h.agent(a.id), key };
 }
 export async function fixture(
-  options: { duration?: number; maxMessages?: number; ready?: boolean } = {},
+  options: { duration?: number; maxMessages?: number; ready?: boolean; pin?: boolean } = {},
 ) {
   const clock = { now: Math.floor(Date.now() / 1000) },
     h = new Hub(db(env), 'http://localhost:8789', () => clock.now);
@@ -101,7 +101,7 @@ export async function fixture(
     joined.id,
     await signPayload(bob.key.privateKey, joined.descriptor),
   );
-  for (const endpoint of [a, b]) {
+  for (const endpoint of options.pin === false ? [] : [a, b]) {
     const proof = {
       v: PROTOCOL_VERSION,
       kind: 'pairing-confirmation',

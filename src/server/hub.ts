@@ -19,6 +19,11 @@ import {
 } from '../shared/protocol';
 import { asJson, audit, ensure, HubError, type Connection } from './common';
 
+// Once both owners have signed, a pairing can carry conversations; each endpoint pins it
+// (hub_confirm_pairing) before its own preflight, and messages still require 'active'.
+const pairedStatuses = ['awaiting_endpoints', 'active'];
+const PAIRING_PIN_WINDOW = 30 * 86400;
+
 export interface AgentRow {
   id: string;
   owner_id: string;
@@ -505,16 +510,17 @@ export class Hub {
       id: p.id,
       nonce: randomToken(),
       participants: [await this.participant(a.id), await this.participant(b.id)],
-      expires_at: p.expires_at,
+      // Endpoints pin the certificate lazily (at the first session), so it must outlive the invite.
+      expires_at: this.now() + PAIRING_PIN_WINDOW,
     };
     const hash = await fingerprint(descriptor),
       encoded = canonical(descriptor);
     const results = await this.connection.batch([
       this.connection
         .prepare(
-          "UPDATE pairings SET owner_b=?,agent_b=?,descriptor_json=?,fingerprint=?,status='confirming' WHERE id=? AND status='invited' AND expires_at>? AND owner_a<>?",
+          "UPDATE pairings SET owner_b=?,agent_b=?,descriptor_json=?,fingerprint=?,status='confirming',expires_at=? WHERE id=? AND status='invited' AND expires_at>? AND owner_a<>?",
         )
-        .bind(ownerId, agentId, encoded, hash, p.id, this.now(), ownerId),
+        .bind(ownerId, agentId, encoded, hash, descriptor.expires_at, p.id, this.now(), ownerId),
       this.conditionalEvent(
         'pairing_joined',
         p.id,
@@ -710,10 +716,13 @@ export class Hub {
   async createConversation(ownerId: string, pairingId: string, duration = 600, maxMessages = 40) {
     const pair = await this.pair(pairingId, ownerId);
     ensure(
-      pair.status === 'active' && pair.descriptor_json && pair.fingerprint && pair.agent_b,
+      pairedStatuses.includes(pair.status) &&
+        pair.descriptor_json &&
+        pair.fingerprint &&
+        pair.agent_b,
       'pairing_not_ready',
       409,
-      '请先让两端确认安全配对',
+      '请先完成双方主人的配对签署',
     );
     ensure(
       Number.isInteger(duration) &&
@@ -808,7 +817,7 @@ export class Hub {
       p = await this.pair(c.pairing_id, ownerId),
       u = await this.user(ownerId);
     ensure(
-      p.status === 'active' &&
+      pairedStatuses.includes(p.status) &&
         c.expires_at > this.now() &&
         ['awaiting_approval', 'authorized', 'ready', 'active'].includes(c.status),
       'conversation_not_approvable',
@@ -826,7 +835,7 @@ export class Hub {
     await this.connection.batch([
       this.connection
         .prepare(
-          `UPDATE conversations SET ${field}=? WHERE id=? AND status='awaiting_approval' AND ${field} IS NULL AND expires_at>? AND EXISTS(SELECT 1 FROM pairings WHERE id=? AND status='active')`,
+          `UPDATE conversations SET ${field}=? WHERE id=? AND status='awaiting_approval' AND ${field} IS NULL AND expires_at>? AND EXISTS(SELECT 1 FROM pairings WHERE id=? AND status IN ('awaiting_endpoints','active'))`,
         )
         .bind(approval, id, this.now(), p.id),
       this.connection
@@ -864,12 +873,19 @@ export class Hub {
       c = await this.conversation(id, undefined, agentId),
       p = await this.pair(c.pairing_id, undefined, agentId);
     ensure(
-      p.status === 'active' &&
+      pairedStatuses.includes(p.status) &&
         ['authorized', 'ready', 'active'].includes(c.status) &&
         !this.conversationView(c).conversation_closed,
       'conversation_not_authorized',
       403,
       '会话尚未获双方授权或已经结束',
+    );
+    // The endpoint must have verified and pinned the pairing before it can declare readiness.
+    ensure(
+      p.agent_a === agentId ? p.endpoint_a_ack : p.endpoint_b_ack,
+      'pairing_unconfirmed',
+      409,
+      '请先用端点 pair 确认配对，再预检',
     );
     const r = await this.connection
       .prepare('SELECT nonce FROM readiness WHERE conversation_id=? AND agent_id=?')
@@ -1079,6 +1095,38 @@ export class Hub {
       .run();
   }
 
+  // Endpoint work the native Agent should do on its next invocation, in order:
+  // pin owner-approved pairings first, then declare readiness for approved sessions.
+  async pendingActions(agentId: string) {
+    const pairs = await this.connection
+      .prepare(
+        `SELECT id,expires_at FROM pairings WHERE status='awaiting_endpoints' AND expires_at>?
+        AND ((agent_a=? AND endpoint_a_ack IS NULL) OR (agent_b=? AND endpoint_b_ack IS NULL))
+        ORDER BY created_at`,
+      )
+      .bind(this.now(), agentId, agentId)
+      .all<{ id: string; expires_at: number }>();
+    const sessions = await this.connection
+      .prepare(
+        `SELECT c.id FROM conversations c JOIN pairings p ON p.id=c.pairing_id
+        JOIN readiness r ON r.conversation_id=c.id AND r.agent_id=?
+        WHERE (p.agent_a=? OR p.agent_b=?) AND p.status IN ('awaiting_endpoints','active')
+        AND c.status IN ('authorized','ready','active') AND r.ready_at IS NULL
+        AND c.expires_at>? AND (c.deadline IS NULL OR c.deadline>?)
+        ORDER BY c.created_at`,
+      )
+      .bind(agentId, agentId, agentId, this.now(), this.now())
+      .all<{ id: string }>();
+    return [
+      ...pairs.results.map((p) => ({
+        action: 'confirm_pairing' as const,
+        pairing_id: p.id,
+        expires_at: p.expires_at,
+      })),
+      ...sessions.results.map((c) => ({ action: 'preflight' as const, conversation_id: c.id })),
+    ];
+  }
+
   async pendingRequests(agentId: string) {
     await this.activeAgent(agentId);
     const rows = await this.connection
@@ -1086,7 +1134,7 @@ export class Hub {
         `SELECT c.* FROM conversations c JOIN pairings p ON p.id=c.pairing_id
         JOIN agents sender ON sender.id=c.initiator_agent_id
         JOIN users sender_owner ON sender_owner.id=sender.owner_id AND sender_owner.disabled_at IS NULL
-        WHERE p.status='active' AND sender.status='active'
+        WHERE p.status IN ('awaiting_endpoints','active') AND sender.status='active'
         AND c.status='awaiting_approval' AND c.expires_at>?
         AND ((p.agent_a=? AND c.initiator_agent_id=p.agent_b
           AND c.approval_b_json IS NOT NULL AND c.approval_a_json IS NULL)
@@ -1159,6 +1207,7 @@ export class Hub {
       conversations: sessions.results.map((c) => this.conversationView(c)),
       readiness: ready.results,
       pending_requests: a.status === 'active' ? (await this.pendingRequests(agentId)).requests : [],
+      pending_actions: a.status === 'active' ? await this.pendingActions(agentId) : [],
       request_execution_permission_granted: false,
     };
   }

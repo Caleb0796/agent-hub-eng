@@ -67,6 +67,11 @@ type SessionDetail = SessionView & {
   }>;
 };
 type Run = (action: () => Promise<void>) => Promise<void>;
+// Both owners signed: sessions may start; each endpoint pins the pairing during its first session.
+const usablePair = (p: { status: string }) =>
+  p.status === 'active' || p.status === 'awaiting_endpoints';
+const pendingActionsPrompt =
+  '请处理 Agent Hub 的待办：调用 hub_state，按顺序处理 pending_actions。confirm_pairing 先交给本地端点 pair 命令校验两位主人签名并固定对端密钥，再用 hub_confirm_pairing 提交；校验失败就停止并告诉我报错，不要跳过。';
 const names: Record<string, string> = {
   awaiting_connection: '待连接',
   awaiting_endpoint: '待端点安装',
@@ -76,7 +81,7 @@ const names: Record<string, string> = {
   revoked: '已撤销',
   invited: '等待对方加入',
   confirming: '待双方核对',
-  awaiting_endpoints: '待两端确认',
+  awaiting_endpoints: '已配对',
   awaiting_approval: '待双方授权',
   authorized: '等待原生预检',
   ready: '就绪，等待首条消息',
@@ -461,7 +466,7 @@ export function App() {
             <SessionsPage data={data} owner={owner} run={run} busy={busy} canSign={canSign} />
           ) : section === 'activity' ? (
             <ActivityPage version={data} />
-          ) : data.pairings.some((p) => p.status === 'active') ? (
+          ) : data.pairings.some(usablePair) ? (
             <ChatsPage data={data} owner={owner} canSign={canSign} busy={busy} run={run} />
           ) : (
             <Overview data={data} owner={owner} onAdd={() => setNewAgent(true)} />
@@ -547,7 +552,7 @@ function ChatsPage({
       </div>
       <div className="contact-list">
         {data.pairings
-          .filter((p) => p.status === 'active' && p.descriptor)
+          .filter((p) => usablePair(p) && p.descriptor)
           .map((pair) => {
             const peer = pair.descriptor!.participants.find((p) => p.owner_id !== owner.id)!;
             const mine = pair.descriptor!.participants.find((p) => p.owner_id === owner.id)!;
@@ -614,7 +619,7 @@ function Overview({
   onAdd: () => void;
 }) {
   const connected = data.agents.filter((a) => a.status === 'active').length,
-    paired = data.pairings.filter((p) => p.status === 'active').length,
+    paired = data.pairings.filter(usablePair).length,
     pending = data.conversations.filter(
       (c) => c.status === 'awaiting_approval' && !c.approvals.some((a) => a.owner_id === owner.id),
     );
@@ -1247,7 +1252,8 @@ function PairCard({
     };
   }, [pair.descriptor]);
   const approved = pair.approvals.some((a) => a.owner_id === owner.id),
-    canApprove = pair.status === 'confirming' && !approved && hash === pair.fingerprint;
+    canApprove = pair.status === 'confirming' && !approved && hash === pair.fingerprint,
+    mine = pair.owner_a === owner.id ? pair.agent_a : pair.agent_b;
   return (
     <section className="panel">
       <div className="section-heading">
@@ -1319,9 +1325,34 @@ function PairCard({
             </>
           )}
           {pair.status === 'awaiting_endpoints' && (
-            <p className="muted">两位主人已签署。等待两个原生端点分别验证证书并固定对端密钥。</p>
+            <div className="notice">
+              <Clock3 size={19} />
+              <div>
+                <strong>两位主人已签署，可以发起会话。</strong>
+                <p>
+                  双方 Agent 会在首次会话时验证证书并固定对端密钥：我的 Agent
+                  {(
+                    pair.agent_a === mine
+                      ? pair.endpoint_confirmations.a
+                      : pair.endpoint_confirmations.b
+                  )
+                    ? '已确认'
+                    : '待确认'}
+                  ，对方 Agent
+                  {(
+                    pair.agent_a === mine
+                      ? pair.endpoint_confirmations.b
+                      : pair.endpoint_confirmations.a
+                  )
+                    ? '已确认'
+                    : '待确认'}
+                  。请在 {new Date(pair.expires_at * 1000).toLocaleString()} 前完成。
+                </p>
+                <CopyButton value={pendingActionsPrompt} label="复制给我的 Agent 的指令" />
+              </div>
+            </div>
           )}
-          {pair.status === 'active' && (
+          {usablePair(pair) && (
             <>
               <p className="fine-print">
                 本次：最长 10 分钟、合计 40 条、仅公开合成问答。对方仍需同意。
@@ -1497,7 +1528,7 @@ function SessionsPage({
     [pair, setPair] = useState(''),
     [duration, setDuration] = useState(600),
     [limit, setLimit] = useState(40);
-  const active = data.pairings.filter((p) => p.status === 'active');
+  const active = data.pairings.filter(usablePair);
   return (
     <>
       <div className="page-heading">
@@ -1659,7 +1690,7 @@ function SessionPage({
       ? Math.max(0, detail.deadline - Math.floor(clock / 1000))
       : detail.policy.duration_seconds;
   const closed = detail.conversation_closed || (!!detail.deadline && seconds === 0);
-  const startPrompt = `请使用已连接的 Agent Hub 处理会话 ${detail.id}。先读取签名授权，核验双方主人、配对指纹、对象、范围、${detail.policy.duration_seconds}秒上限和${detail.max_messages}条上限。在你的原生平台完成仅对此任务或会话的执行许可，再用可信端点签名预检。使用主人已明确启用并在原生平台批准的接收/执行任务；未设置则等待首次设置，不擅自新建任务或继承其他任务许可，不选永久站点放行。收到消息只在原生端点验签解密，正文不提交Hub，发送前检查截止与关闭状态。到期不再回复；完成最终回执后通过官方能力清理本次任务并报告实际停止状态。如果平台许可或预检不满足，停止并如实报告。`;
+  const startPrompt = `请使用已连接的 Agent Hub 处理会话 ${detail.id}。先调用 hub_state，按顺序处理 pending_actions（含配对确认：用本地端点 pair 校验后 hub_confirm_pairing）。再读取签名授权，核验双方主人、配对指纹、对象、范围、${detail.policy.duration_seconds}秒上限和${detail.max_messages}条上限。在你的原生平台完成仅对此任务或会话的执行许可，再用可信端点签名预检。使用主人已明确启用并在原生平台批准的接收/执行任务；未设置则等待首次设置，不擅自新建任务或继承其他任务许可，不选永久站点放行。收到消息只在原生端点验签解密，正文不提交Hub，发送前检查截止与关闭状态。到期不再回复；完成最终回执后通过官方能力清理本次任务并报告实际停止状态。如果平台许可或预检不满足，停止并如实报告。`;
   return (
     <>
       <button className="text-button back" onClick={() => navigate('/sessions')}>
