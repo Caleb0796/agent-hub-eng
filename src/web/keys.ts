@@ -1,12 +1,19 @@
 import { base64url, signPayload } from '../shared/crypto';
 import { validateOwnerPayload } from '../shared/authorization';
+import { api } from './api';
+import { derivePasskeyApprovalKey, PrfUnavailableError } from './prf';
 
 export interface OwnerView {
   id: string;
   handle: string;
   name: string;
   signingKey: string;
+  approvalKeyKind: 'browser' | 'passkey-prf';
+  approvalCredentialId: string | null;
+  approvalKeyReplaceable: boolean;
 }
+// 'local': this browser holds the key. 'passkey': it can be re-derived with the passkey.
+export type SignMode = 'local' | 'passkey' | 'none';
 interface StoredKey {
   publicKey: string;
   privateKey: CryptoKey;
@@ -66,15 +73,64 @@ export async function bindOwnerKey(owner: OwnerView): Promise<boolean> {
   await write(`owner:${owner.id}`, existing);
   return true;
 }
-export async function ownerCanSign(owner: OwnerView): Promise<boolean> {
-  return bindOwnerKey(owner);
+export async function ownerCanSign(owner: OwnerView): Promise<SignMode> {
+  if (await bindOwnerKey(owner)) return 'local';
+  return owner.approvalKeyKind === 'passkey-prf' ? 'passkey' : 'none';
+}
+async function signingKey(owner: OwnerView): Promise<StoredKey> {
+  const local = await read(`owner:${owner.id}`);
+  if (local && local.publicKey === owner.signingKey) return local;
+  if (owner.approvalKeyKind !== 'passkey-prf')
+    throw new Error(
+      '此浏览器没有你的授权密钥。请回到注册账号时使用的浏览器完成认领或授权，或在尚未认领时重置授权密钥。',
+    );
+  const { key } = await derivePasskeyApprovalKey(owner.approvalCredentialId);
+  if (key.publicKey !== owner.signingKey)
+    throw new Error('这个通行密钥派生的授权密钥与账号不一致，请使用注册时的那个通行密钥。');
+  // Cache the non-extractable key so later approvals in this browser need no extra prompt.
+  await write(`owner:${owner.id}`, key);
+  return key;
 }
 export async function signOwner(owner: OwnerView, payload: unknown): Promise<string> {
-  const key = await read(`owner:${owner.id}`);
-  if (!key || key.publicKey !== owner.signingKey)
-    throw new Error(
-      '此浏览器没有你的授权密钥。请回到注册账号时使用的浏览器完成认领或授权；登录恢复不会替换密钥。',
-    );
-  await validateOwnerPayload(owner.id, key.publicKey, payload);
-  return signPayload(key.privateKey, payload);
+  await validateOwnerPayload(owner.id, owner.signingKey, payload);
+  return signPayload((await signingKey(owner)).privateKey, payload);
+}
+
+// Replaces the account's approval key with a passkey-derived one, falling back to a
+// browser-held key when PRF is unavailable and `fallback` is allowed.
+export async function replaceApprovalKey(
+  owner: OwnerView,
+  options: { credentialId?: string; fallback: boolean },
+): Promise<OwnerView> {
+  let key: StoredKey, keyKind: OwnerView['approvalKeyKind'], credentialId: string | null;
+  try {
+    const derived = await derivePasskeyApprovalKey(options.credentialId);
+    key = derived.key;
+    keyKind = 'passkey-prf';
+    credentialId = derived.credentialId;
+  } catch (error) {
+    if (!(error instanceof PrfUnavailableError) || !options.fallback) throw error;
+    key = await draftOwnerKey();
+    keyKind = 'browser';
+    credentialId = null;
+  }
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const signature = await signPayload(key.privateKey, {
+    kind: 'owner-approval-key',
+    user_id: owner.id,
+    signing_key: key.publicKey,
+    key_kind: keyKind,
+    credential_id: credentialId,
+    issued_at: issuedAt,
+  });
+  const result = await api<{ owner: OwnerView }>('/api/auth/approval-key', 'POST', {
+    signingKey: key.publicKey,
+    keyKind,
+    credentialId,
+    issuedAt,
+    signature,
+  });
+  await write(`owner:${owner.id}`, key);
+  await write(`handle:${owner.handle}`, key);
+  return result.owner;
 }

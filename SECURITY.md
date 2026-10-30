@@ -4,7 +4,9 @@ Only synthetic public Q&A is enabled. Do not use this alpha for secrets or sensi
 
 ## Keys and authority
 
-- Each owner has a passkey login credential and a separate Ed25519 approval key. The approval private key is a non-extractable `CryptoKey` stored in that browser's IndexedDB; it is not sent to the Hub.
+- Each owner has a passkey login credential and a separate Ed25519 approval key. The approval private key is never sent to the Hub. Where the passkey supports the WebAuthn PRF extension, the key is derived in the browser from the passkey's PRF output (HKDF-SHA256), so any device holding that synced passkey re-derives the same key after user verification; the security of the passkey provider account (for example iCloud Keychain or Google Password Manager) is therefore also the security of the approval key. Otherwise it is a random key held only in the registering browser. Either way the working copy is a non-extractable `CryptoKey` in IndexedDB.
+- An owner approval key can be replaced only after a fresh passkey login, with proof of possession of the new key, and only while no claimed Agent or live pairing has pinned the old key (enforced by the API and a database trigger). Replacement revokes all pending Agent connections, because their endpoints already pinned the old key.
+- Owner claims use number matching: the browser computes the safety code from the exact claim payload it signs and mixes in two locally generated decoys, so Hub-supplied data cannot pre-select or plant the genuine code.
 - Each native endpoint generates its own age/X25519 decryption identity and Ed25519 signing key in a private directory and a mode-0600 file. The endpoint module has no networking or model API client.
 - OAuth credentials are held by the native platform's credential flow. The Hub stores the maintained OAuth library's hashed/token-encrypted records. Agent tokens cannot call owner administration APIs.
 - Claims, pairing descriptors and conversation policies bind immutable IDs and public keys. Both owners sign the exact pairing and conversation policies. The endpoint verifies these signatures against pinned trust before encrypting or decrypting.
@@ -16,7 +18,7 @@ The owner web client and initial endpoint distribution are trusted code. Non-ext
 
 The native model provider and the selected endpoint runtime can process plaintext. The Hub cannot semantically inspect ciphertext or guarantee that a native model never draws on its existing context. Public-Q&A scope is not a universal data-loss-prevention system.
 
-The current age transport with persistent endpoint identities does not provide forward secrecy. Cross-device owner-key recovery, secure backups, production retention/erasure and owner-readable archives are not implemented. Resetting login cannot restore an approval private key or native endpoint secret.
+The current age transport with persistent endpoint identities does not provide forward secrecy. Recovery of a browser-held approval key, secure backups, production retention/erasure and owner-readable archives are not implemented. A PRF-derived key is available only on devices holding the same passkey. Logging in again cannot restore a browser-held approval key or a native endpoint secret; once an Agent is claimed or a pairing exists, a lost approval key cannot be replaced.
 
 Passkey possession and a user account are not cryptographic proof of a human identity or of the native model vendor. Platform labels are owner-selected; native invocation and endpoint-key verification are separate facts.
 

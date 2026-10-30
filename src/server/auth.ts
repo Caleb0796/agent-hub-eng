@@ -12,6 +12,7 @@ import {
 import { base64url, decode64, randomToken, sha256, utf8, verifySignature } from '../shared/crypto';
 import { keySchema, signatureSchema } from '../shared/protocol';
 import {
+  approvalKeyReplaceable,
   audit,
   asJson,
   db,
@@ -20,7 +21,7 @@ import {
   nowSeconds,
   origin,
   owner,
-  publicOwner,
+  ownerView,
   rateLimit,
   requireBrowserOrigin,
   sessionCookieName,
@@ -210,6 +211,8 @@ router.post('/register/options', async (c) => {
     attestationType: 'none',
     authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
     supportedAlgorithmIDs: [-7, -8, -257],
+    // Lets authenticators that need it enable PRF now; the approval key is derived later.
+    extensions: { prf: {} } as AuthenticationExtensionsClientInputs,
   });
   await saveChallenge(c, 'register', options.challenge, {
     ...input,
@@ -328,7 +331,7 @@ router.post('/register/verify', async (c) => {
   await createSession(c, data.userId);
   return c.json(
     {
-      owner: { id: data.userId, handle: data.handle, name: data.name, signingKey: data.signingKey },
+      owner: await ownerView(connection, data.userId),
     },
     201,
   );
@@ -391,13 +394,100 @@ router.post('/login/verify', async (c) => {
     .run();
   ensure(changed.meta.changes === 1, 'authentication_conflict', 409, '验证状态变化，请重试登录');
   await createSession(c, credential.user_id);
-  const user = await connection
+  return c.json({ owner: await ownerView(connection, credential.user_id) });
+});
+
+// Replaces the owner approval key (upgrade to a passkey-derived key, or recovery in a new
+// browser). Only allowed before any Agent claim or pairing pinned the old key; pending
+// Agent connections are revoked because their endpoints already pinned it at prepare.
+router.post('/approval-key', async (c) => {
+  const user = await owner(c, { write: true, fresh: true });
+  const input = z
+    .object({
+      signingKey: keySchema,
+      keyKind: z.enum(['browser', 'passkey-prf']),
+      credentialId: z.string().min(1).max(1024).nullable(),
+      issuedAt: z.number().int(),
+      signature: signatureSchema,
+    })
+    .strict()
+    .parse(await c.req.json());
+  const at = nowSeconds(),
+    connection = db(c.env);
+  ensure(Math.abs(at - input.issuedAt) <= 300, 'proof_expired', 400, '密钥证明已过期，请重试');
+  ensure(
+    (input.keyKind === 'passkey-prf') === (input.credentialId !== null),
+    'invalid_key_kind',
+    400,
+    '密钥类型与通行密钥不匹配',
+  );
+  ensure(
+    await verifySignature(
+      input.signingKey,
+      {
+        kind: 'owner-approval-key',
+        user_id: user.id,
+        signing_key: input.signingKey,
+        key_kind: input.keyKind,
+        credential_id: input.credentialId,
+        issued_at: input.issuedAt,
+      },
+      input.signature,
+    ),
+    'invalid_signing_proof',
+    400,
+    '授权密钥证明不匹配',
+  );
+  if (input.credentialId)
+    ensure(
+      await connection
+        .prepare('SELECT id FROM passkeys WHERE id=? AND user_id=?')
+        .bind(input.credentialId, user.id)
+        .first(),
+      'unknown_credential',
+      400,
+      '这个通行密钥不属于当前账号',
+    );
+  ensure(
+    await approvalKeyReplaceable(connection, user.id),
+    'approval_key_locked',
+    409,
+    '已有完成认领的 Agent 或配对，不能更换授权密钥',
+  );
+  const pending = await connection
     .prepare(
-      'SELECT id,handle,display_name AS name,signing_key AS signingKey FROM users WHERE id=?',
+      "SELECT id FROM agents WHERE owner_id=? AND status IN ('awaiting_connection','awaiting_endpoint','awaiting_claim')",
     )
-    .bind(credential.user_id)
-    .first();
-  return c.json({ owner: user });
+    .bind(user.id)
+    .all<{ id: string }>();
+  try {
+    await connection.batch([
+      connection
+        .prepare(
+          "UPDATE agents SET status='revoked',revoked_at=?,updated_at=?,auth_version=auth_version+1 WHERE owner_id=? AND status IN ('awaiting_connection','awaiting_endpoint','awaiting_claim')",
+        )
+        .bind(at, at, user.id),
+      connection
+        .prepare(
+          'UPDATE users SET signing_key=?,approval_key_kind=?,approval_credential_id=? WHERE id=?',
+        )
+        .bind(input.signingKey, input.keyKind, input.credentialId, user.id),
+      ...pending.results.map((a) =>
+        audit(connection, 'agent_revoked', a.id, { owner: user.id }, {}, at, `revoked:${a.id}`),
+      ),
+      audit(
+        connection,
+        'owner_approval_key_replaced',
+        user.id,
+        { owner: user.id },
+        { kind: input.keyKind, revoked_agents: pending.results.length },
+        at,
+      ),
+    ]);
+  } catch {
+    throw new HubError('approval_key_locked', 409, '授权密钥已被绑定，不能更换');
+  }
+  return c.json({ owner: await ownerView(connection, user.id) });
 });
 
 router.post('/logout', async (c) => {
