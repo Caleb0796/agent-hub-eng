@@ -36,6 +36,7 @@ import { validateOwnerPayload } from '../shared/authorization';
 import { api, ApiError, navigate } from './api';
 import { ownerCanSign, replaceApprovalKey, signOwner, type OwnerView, type SignMode } from './keys';
 import { claimChoices } from './claim';
+import { eventReceiverMatches } from './receiving';
 import { Auth } from './Auth';
 
 type Dashboard = Awaited<ReturnType<Hub['dashboard']>>;
@@ -560,7 +561,9 @@ function ChatsPage({
               (c) => c.pairing_id === pair.id && !c.conversation_closed,
             );
             const eventsReady = ['hub.request.created', 'hub.session.authorized'].every((name) =>
-              data.event_receivers.some((r) => r.agent_id === mine.agent_id && r.name === name),
+              data.event_receivers.some((r) =>
+                eventReceiverMatches(r, mine.agent_id, pair.id, name),
+              ),
             );
             const pollingReady = data.polling_receivers.some(
               (r) => r.agent_id === mine.agent_id && r.kind !== 'status-query',
@@ -1690,6 +1693,28 @@ function SessionPage({
       ? Math.max(0, detail.deadline - Math.floor(clock / 1000))
       : detail.policy.duration_seconds;
   const closed = detail.conversation_closed || (!!detail.deadline && seconds === 0);
+  const ownParticipant = detail.policy.participants.find((p) => p.owner_id === owner.id)!;
+  const ownReadiness = detail.readiness.find((r) => r.agent_id === ownParticipant.agent_id);
+  const currentPair = data.pairings.find((p) => p.id === detail.pairing_id);
+  const ownPairConfirmed = currentPair
+    ? currentPair.agent_a === ownParticipant.agent_id
+      ? currentPair.endpoint_confirmations.a
+      : currentPair.endpoint_confirmations.b
+    : undefined;
+  const ownSessionReceiver = data.event_receivers.some((r) =>
+    eventReceiverMatches(r, ownParticipant.agent_id, detail.pairing_id, 'hub.session.authorized'),
+  );
+  const receiverForAnotherPair = data.event_receivers.some(
+    (r) =>
+      r.agent_id === ownParticipant.agent_id &&
+      r.name === 'hub.session.authorized' &&
+      !eventReceiverMatches(
+        r,
+        ownParticipant.agent_id,
+        detail.pairing_id,
+        'hub.session.authorized',
+      ),
+  );
   const startPrompt = `请使用已连接的 Agent Hub 处理会话 ${detail.id}。先调用 hub_state，按顺序处理 pending_actions（含配对确认：用本地端点 pair 校验后 hub_confirm_pairing）。再读取签名授权，核验双方主人、配对指纹、对象、范围、${detail.policy.duration_seconds}秒上限和${detail.max_messages}条上限。在你的原生平台完成仅对此任务或会话的执行许可，再用可信端点签名预检。使用主人已明确启用并在原生平台批准的接收/执行任务；未设置则等待首次设置，不擅自新建任务或继承其他任务许可，不选永久站点放行。收到消息只在原生端点验签解密，正文不提交Hub，发送前检查截止与关闭状态。到期不再回复；完成最终回执后通过官方能力清理本次任务并报告实际停止状态。如果平台许可或预检不满足，停止并如实报告。`;
   return (
     <>
@@ -1851,9 +1876,24 @@ function SessionPage({
               );
             })}
           </div>
-          <p className="muted small">
-            已连接的接收器会处理本次会话。若平台要求本次执行确认，请在对应原生应用完成。
-          </p>
+          {!ownReadiness?.ready_at && (
+            <div className="notice">
+              <Clock3 size={19} />
+              <div>
+                {ownPairConfirmed === false && (
+                  <p>你的 Agent 尚未确认这次配对。请先在原生 Agent 验证配对证书，再提交预检。</p>
+                )}
+                <p>
+                  {ownSessionReceiver
+                    ? '本次配对的事件接收已配置，仍需 Agent 完成原生许可核验和预检。'
+                    : receiverForAnotherPair
+                      ? '现有事件接收器监听的是其他配对，没有覆盖本次联系人。请在原生平台确认本次执行范围。'
+                      : '尚未检测到本次配对的事件接收配置。若使用定时接收任务，请在原生平台确认它包含本次联系人。'}
+                </p>
+                <p>连接若提示重新认证，请选择原已认领的 Agent，并核对 ID 和指纹。</p>
+              </div>
+            </div>
+          )}
           <details>
             <summary>首次设置与手动恢复</summary>
             <p className="fine-print">

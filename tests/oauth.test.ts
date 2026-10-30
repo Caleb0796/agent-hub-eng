@@ -1,4 +1,4 @@
-import { server } from './runtime';
+import { env, server } from './runtime';
 import { describe, it, expect } from 'vitest';
 import { base64url, randomToken } from '../src/shared/crypto';
 import { seedOwner, ownerHeaders } from './helpers';
@@ -7,7 +7,11 @@ import { scopes } from '../src/shared/protocol';
 const base = 'http://localhost:8789',
   resource = `${base}/mcp`,
   callback = 'http://localhost:45678/callback';
-async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) {
+async function authorize(
+  platform: 'dot' | 'muse' = 'dot',
+  redirect = callback,
+  probeSelection = false,
+) {
   const callback = redirect;
   const u = await seedOwner('OAuthOwner');
   const create = await server.fetch(`${base}/api/agents`, {
@@ -77,6 +81,30 @@ async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) 
     label: 'Native ' + platform,
   });
   for (const scope of Object.values(scopes)) form.append('scope', scope);
+  if (probeSelection) {
+    for (const value of [undefined, '']) {
+      const missing = new URLSearchParams(form);
+      if (value === undefined) missing.delete('agentId');
+      else missing.set('agentId', value);
+      const rejected = await server.fetch(`${base}/authorize`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Origin: base,
+          Cookie: `${ownerHeaders(u).Cookie}; ${cookies}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: missing,
+      });
+      expect(rejected.status).toBe(400);
+      expect((await rejected.json<{ error: string }>()).error).toBe('agent_selection_required');
+    }
+    expect(
+      await env.DB.prepare('SELECT COUNT(*) AS count FROM agents WHERE owner_id=?')
+        .bind(u.id)
+        .first<{ count: number }>(),
+    ).toEqual({ count: 1 });
+  }
   const nullOrigin = await server.fetch(`${base}/authorize`, {
     method: 'POST',
     headers: {
@@ -120,10 +148,37 @@ async function authorize(platform: 'dot' | 'muse' = 'dot', redirect = callback) 
         ...overrides,
       }),
     });
-  return { u, agent, client, exchange };
+  return { u, agent, client, exchange, html };
 }
 
 describe('native OAuth without copying API keys', () => {
+  it('requires an explicit connection choice and reconnects the original identity', async () => {
+    const flow = await authorize('dot', callback, true);
+    expect(flow.html).toContain('<select name="agentId" required>');
+    expect(flow.html).toContain('<option value="" disabled selected>');
+    expect(flow.html).toContain(`待连接 · ID ${flow.agent.id.slice(0, 8)}`);
+    expect(flow.html).toContain('formnovalidate');
+    const token = await (await flow.exchange()).json<{ access_token: string }>();
+    const response = await server.fetch(resource, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'hub_identity', arguments: {} },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toHaveProperty(
+      'result.structuredContent.agent_id',
+      flow.agent.id,
+    );
+  });
+
   it('completes consent and PKCE with the native Muse callback and Muse-only choices', async () => {
     const flow = await authorize('muse', 'https://agent.meta.ai/api/hatch/oauth/callback');
     expect((await flow.exchange()).status).toBe(200);

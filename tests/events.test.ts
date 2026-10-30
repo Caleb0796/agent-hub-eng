@@ -43,6 +43,20 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('native MCP event subscriptions', () => {
+  it('exposes the owner’s pairing filter without exposing callback credentials', async () => {
+    const f = await fixture(),
+      events = new NativeEvents(f.h, transport);
+    const scoped = input('hub.session.authorized');
+    await events.subscribe(f.a.agent.id, { ...scoped, arguments: { pairing_id: f.pair.id } });
+    await events.subscribe(f.a.agent.id, input('hub.request.created'));
+    const rows = (await f.h.dashboard(f.alice.id)).event_receivers;
+    expect(rows.find((r) => r.name === 'hub.session.authorized')?.pairing_id).toBe(f.pair.id);
+    expect(rows.find((r) => r.name === 'hub.request.created')?.pairing_id).toBeNull();
+    expect(JSON.stringify(rows)).not.toContain(scoped.delivery.url);
+    expect(JSON.stringify(rows)).not.toContain(scoped.delivery.secret);
+    expect((await f.h.dashboard(f.bob.id)).event_receivers).toEqual([]);
+  });
+
   it('accepts standard request metadata and enforces its finite minimum subscription lifetime', async () => {
     const f = await fixture(),
       events = new NativeEvents(f.h, transport),

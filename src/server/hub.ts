@@ -1041,14 +1041,20 @@ export class Hub {
       event_receivers: (
         await this.connection
           .prepare(
-            `SELECT s.agent_id,s.name,s.expires_at,
+            `SELECT s.agent_id,s.name,s.expires_at,json_extract(s.arguments_json,'$.pairing_id') AS pairing_id,
         (SELECT MAX(d.delivered_at) FROM event_deliveries d WHERE d.subscription_id=s.id) AS last_delivery_at
         FROM event_subscriptions s JOIN agents a ON a.id=s.agent_id
         WHERE a.owner_id=? AND a.status='active' AND s.auth_version=a.auth_version
         AND s.disabled_at IS NULL AND s.expires_at>?`,
           )
           .bind(ownerId, this.now())
-          .all()
+          .all<{
+            agent_id: string;
+            name: string;
+            expires_at: number;
+            pairing_id: string | null;
+            last_delivery_at: number | null;
+          }>()
       ).results,
       polling_receivers: (
         await this.connection

@@ -94,10 +94,18 @@ oauthRoutes.get('/authorize', async (c) => {
     .prepare("SELECT * FROM agents WHERE owner_id=? AND status<>'revoked' ORDER BY created_at DESC")
     .bind(user.id)
     .all<AgentRow>();
-  const choices = agents.results
-    .filter((a) => !platform || a.platform === platform)
+  const eligible = agents.results.filter((a) => !platform || a.platform === platform);
+  const agentStates: Record<string, string> = {
+    awaiting_connection: '待连接',
+    awaiting_endpoint: '待端点安装',
+    awaiting_claim: '待主人认领',
+    awaiting_confirmation: '待端点确认',
+    active: '已连接',
+  };
+  const choices = eligible
     .map(
-      (a) => `<option value="${escape(a.id)}">${escape(a.label)} · ${escape(a.platform)}</option>`,
+      (a) =>
+        `<option value="${escape(a.id)}">${escape(a.label)} · ${escape(a.platform)} · ${escape(agentStates[a.status] ?? a.status)} · ID ${escape(a.id.slice(0, 8))}${a.fingerprint ? ` · 指纹 ${escape(a.fingerprint.slice(0, 8))}…${escape(a.fingerprint.slice(-6))}` : ''}</option>`,
     )
     .join('');
   const scopeFields = Object.values(scopes)
@@ -111,11 +119,12 @@ oauthRoutes.get('/authorize', async (c) => {
     <p>当前主人：<strong>${escape(user.display_name)}</strong>（${escape(user.handle)}）</p>
     <div class="client"><strong>${escape(details.clientName)}</strong><p>${details.clientDomain ? `客户端声明发布于 ${escape(details.clientDomain)}` : '客户端名称由申请方提供，不能单独证明厂商身份。'}</p><p>授权将返回 <strong>${escape(details.redirectHost)}</strong>。${details.redirectIsLoopback ? '这是你电脑上的本地测试客户端。' : ''}</p></div>
     <form method="post" action="/authorize" data-callback-origin="${escape(new URL(parsed.redirectUri).origin)}" data-callback-path="${escape(new URL(parsed.redirectUri).pathname)}"><input type="hidden" name="handle" value="${escape(transaction.handle)}"><input type="hidden" name="csrf" value="${escape(getCookie(c, 'agent-hub-csrf') ?? '')}">
-    <label>绑定到哪个 Agent<select name="agentId"><option value="new">创建新连接</option>${choices}</select></label>
+    <label>绑定到哪个 Agent<select name="agentId" required>${eligible.length ? '<option value="" disabled selected>请选择原连接或创建新连接</option>' : ''}<option value="new">创建新连接</option>${choices}</select></label>
+    <p class="note">重新连接时，请选择原来已认领的连接，并核对 ID 和指纹。选择“创建新连接”会生成另一个身份，不能使用原端点的密钥。</p>
     <div class="new-agent"><label>平台<select name="platform">${(platform ? [platform] : ['dot', 'muse']).map((p) => `<option value="${p}">${p === 'dot' ? 'Dot' : 'Muse'}</option>`).join('')}</select></label><label>新连接名称<input name="label" maxlength="60" value="${escape(`${user.display_name} 的 ${platform === 'muse' ? 'Muse' : 'Dot'}`)}" required></label></div>
     <fieldset><legend>允许这个连接</legend>${scopeFields}</fieldset><p class="note">这一步不允许 Agent 代替你认领密钥、批准配对或批准会话。聊天仍需要两位主人对具体对象、期限和额度分别授权。</p>
     <p role="alert" id="consent-error" hidden></p><noscript>请启用 JavaScript 以安全完成授权跳转。</noscript>
-    <div class="actions"><button name="decision" value="deny" class="secondary">拒绝</button><button name="decision" value="approve">同意并连接</button></div></form></main></body></html>`;
+    <div class="actions"><button name="decision" value="deny" class="secondary" formnovalidate>拒绝</button><button name="decision" value="approve">同意并连接</button></div></form></main></body></html>`;
   transaction.headers.set('Content-Type', 'text/html; charset=utf-8');
   transaction.headers.set('Cache-Control', 'no-store');
   // Native form POSTs under no-referrer can carry Origin:null. Send only the
@@ -142,6 +151,13 @@ oauthRoutes.post('/authorize', async (c) => {
     const denied = await oauth.denyConsent(c.req.raw, handle);
     return consentReply(c.req.header('Accept'), denied.redirectTo, denied.headers);
   }
+  const existing = String(form.get('agentId') ?? '');
+  ensure(
+    existing === 'new' || z.uuid().safeParse(existing).success,
+    'agent_selection_required',
+    400,
+    '请选择原连接，或明确选择创建新连接',
+  );
   const selected = z
     .array(z.enum([scopes.read, scopes.enroll, scopes.message]))
     .min(1)
@@ -163,7 +179,6 @@ oauthRoutes.post('/authorize', async (c) => {
     declared = platformSchema.parse(form.get('platform')),
     native = clientPlatform(approved.request.redirectUri);
   ensure(!native || native === declared, 'platform_mismatch', 400, '所选平台与授权回调不一致');
-  const existing = String(form.get('agentId') ?? 'new');
   const agent =
     existing === 'new'
       ? await h.createAgent(
