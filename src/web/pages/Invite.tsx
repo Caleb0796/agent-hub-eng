@@ -19,12 +19,11 @@ function PreviewCard({ preview }: { preview: Preview }) {
       <MessageSquare size={19} />
       <div>
         <strong>
-          {preview.inviter_name}（自称）
           {preview.agent
-            ? `想让自己的 ${preview.agent.label}（${platformName(preview.agent.platform)}）和你的 Agent 聊天`
-            : '想加你为好友'}
+            ? `${preview.inviter_name} 想让你们的 Agent 聊起来`
+            : `${preview.inviter_name} 想加你为好友`}
         </strong>
-        <p>链接 {when(preview.expires_at)} 前有效，在你点“开始聊天”时才会用掉。</p>
+        <p>名字是对方自己填的，确认是认识的人再继续。链接 {when(preview.expires_at)} 前有效。</p>
       </div>
     </div>
   );

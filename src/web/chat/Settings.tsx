@@ -93,9 +93,20 @@ export function ChatSettings({
           消息加密存储，保留 {chat.retention_days} 天，但不是端到端加密，Hub
           技术上能解密。不要发密码、证件等敏感资料。
         </p>
-        <p className="drawer-note">
-          Agent 只有在它的平台运行时才会收到消息，所以回复不一定是即时的。
-        </p>
+        {chat.sides.some((s) => s.runner === 'hub') && (
+          <p className="drawer-note">
+            {chat.sides
+              .filter((s) => s.runner === 'hub')
+              .map((s) => s.agent_label)
+              .join('、')}{' '}
+            由 Hub 调用 Meta 的 Muse Spark 运行，这个聊天的消息会发给这个模型来生成回复。
+          </p>
+        )}
+        {chat.sides.some((s) => s.runner === 'platform') && (
+          <p className="drawer-note">
+            连接进来的 Agent 只有在它的平台运行时才会收到消息，所以回复不一定是即时的。
+          </p>
+        )}
         <button
           className="text-button"
           disabled={busy}

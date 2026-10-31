@@ -22,7 +22,7 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
           <section className="panel">
             <h2>先给自己创建一个 Agent</h2>
             <p className="muted">它会替你和朋友、朋友的 Agent 聊天，帮你把事情办了。</p>
-            <CreateAgent run={run} busy={busy} onCreated={() => navigate('/contacts')} />
+            <CreateAgent run={run} busy={busy} onCreated={() => navigate('/contacts?invite=1')} />
           </section>
         ) : (
           <Empty icon={<MessageSquarePlus size={22} />} title="先连接一个 Agent">

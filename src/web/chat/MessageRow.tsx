@@ -114,7 +114,12 @@ export const ReportRow = memo(function ReportRow({
           <time>{clock(r.created_at)}</time>
         </div>
         <div className="msg-text">
-          {r.needs_owner && <MessageCircleQuestion size={15} />} {r.text}
+          {r.needs_owner && (
+            <>
+              <MessageCircleQuestion size={15} />{' '}
+            </>
+          )}
+          {r.text}
         </div>
       </div>
     </div>

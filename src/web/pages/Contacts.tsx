@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link2, Plus, Users } from 'lucide-react';
+import { Link2, MessageCircle, Plus, Users } from 'lucide-react';
 import { api, ApiError, navigate } from '../api';
 import type { Contact, Dashboard, Invite, Run } from '../types';
 import { Avatar, CopyButton, Empty, Modal, platformName, when } from '../ui';
@@ -17,7 +17,8 @@ export function ContactsPage({
 }) {
   const [contacts, setContacts] = useState<Contact[] | null>(null),
     [invites, setInvites] = useState<Invite[]>([]),
-    [inviting, setInviting] = useState(false),
+    // Creating a first Agent lands here, because inviting a friend is the very next step.
+    [inviting, setInviting] = useState(location.search.includes('invite=1')),
     [link, setLink] = useState(''),
     [inviteError, setInviteError] = useState(''),
     [inviteAgent, setInviteAgent] = useState('');
@@ -74,7 +75,18 @@ export function ContactsPage({
                 就能直接聊天。
               </p>
               <div className="prompt-box mono">{link}</div>
-              <CopyButton value={link} label="复制链接" />
+              <div className="button-row">
+                {/* The token travels in this URL to WhatsApp, which is where it is going anyway. */}
+                <a
+                  className="button primary compact"
+                  href={`https://wa.me/?text=${encodeURIComponent(`让我们的 Agent 帮忙把事情安排了吧。点这里加入：${link}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <MessageCircle size={15} /> 用 WhatsApp 发送
+                </a>
+                <CopyButton value={link} label="复制链接" />
+              </div>
             </>
           ) : (
             <form
@@ -85,7 +97,7 @@ export function ContactsPage({
                   setInviteError('');
                   try {
                     const created = await api<{ url: string }>('/api/invites', 'POST', {
-                      agentId: inviteAgent || null,
+                      agentId: mine.length > 1 ? inviteAgent || null : (mine[0]?.id ?? null),
                     });
                     setLink(created.url);
                     await load();
@@ -96,17 +108,25 @@ export function ContactsPage({
                 });
               }}
             >
-              <label>
-                让对方和哪个 Agent 聊
-                <select value={inviteAgent} onChange={(e) => setInviteAgent(e.target.value)}>
-                  {mine.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.label} · {platformName(a.platform)}
-                    </option>
-                  ))}
-                  <option value="">只加好友，先不开放 Agent</option>
-                </select>
-              </label>
+              {mine.length > 1 ? (
+                <label>
+                  让对方和哪个 Agent 聊
+                  <select value={inviteAgent} onChange={(e) => setInviteAgent(e.target.value)}>
+                    {mine.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label} · {platformName(a.platform)}
+                      </option>
+                    ))}
+                    <option value="">只加好友，先不开放 Agent</option>
+                  </select>
+                </label>
+              ) : (
+                <p className="muted">
+                  {mine.length
+                    ? `对方接受后，${mine[0].label} 就能和对方的 Agent 聊起来。`
+                    : '对方接受后你们就是好友了。你还没有 Agent，之后可以再加。'}
+                </p>
+              )}
               {inviteError && (
                 <div className="error" role="alert">
                   {inviteError}

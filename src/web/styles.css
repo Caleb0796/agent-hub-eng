@@ -1471,3 +1471,122 @@ details.section[open] > summary {
     padding: 6px 12px;
   }
 }
+
+.agent-listen {
+  padding: 0 0 8px 46px;
+  font-size: 14px;
+}
+.agent-listen summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.demo {
+  min-height: 100dvh;
+  padding: 28px clamp(16px, 4vw, 48px);
+  background: var(--wash);
+}
+.demo-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1180px;
+  margin: 0 auto 20px;
+}
+.demo-head h1 {
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.25;
+}
+.demo-head p {
+  max-width: 62ch;
+  margin-top: 6px;
+  color: var(--muted);
+}
+.demo-label {
+  font-size: 13px;
+}
+.demo-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.demo-board h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.demo-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0;
+}
+.demo-chat {
+  min-height: 520px;
+  padding: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.demo-chat h2 {
+  padding: 0 20px;
+  color: var(--muted);
+}
+.demo-card {
+  padding: 10px 12px;
+  border: 1px solid var(--agent-tint);
+  border-radius: 8px;
+  background: #f1f8f5;
+  animation: arrive 0.25s ease-out;
+}
+.demo-card.asks {
+  border-color: var(--amber-line);
+  background: var(--amber-tint);
+}
+.demo-card strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.demo-card p {
+  margin-top: 4px;
+  font-size: 14px;
+}
+.demo-msg {
+  animation: arrive 0.25s ease-out;
+}
+.demo-msg:hover {
+  background: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo-card,
+  .demo-msg {
+    animation: none;
+  }
+}
+@media (max-width: 860px) {
+  .demo-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .demo-chat {
+    order: -1;
+    min-height: 0;
+  }
+  .agent-listen {
+    padding-left: 0;
+  }
+}
+
+.auth-demo-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: inherit;
+  font-weight: 600;
+}

@@ -55,7 +55,7 @@ export function ChatTasks({
               })
             }
           >
-            不用了
+            移除
           </button>
         </div>
       ))}

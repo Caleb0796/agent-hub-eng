@@ -13,6 +13,7 @@ const ActivityPage = lazy(async () => ({
   default: (await import('./pages/Activity')).ActivityPage,
 }));
 const AgentsPage = lazy(async () => ({ default: (await import('./pages/Agents')).AgentsPage }));
+const DemoPage = lazy(async () => ({ default: (await import('./pages/Demo')).DemoPage }));
 const ChatsPage = lazy(async () => ({ default: (await import('./pages/Chats')).ChatsPage }));
 const ContactsPage = lazy(async () => ({
   default: (await import('./pages/Contacts')).ContactsPage,
@@ -118,6 +119,13 @@ export function App() {
       setPath(`/chats/${latestChat}`);
     }
   }, [path, latestChat]);
+  // Public and static, so it needs neither a login nor the API.
+  if (path === '/demo')
+    return (
+      <Suspense fallback={<div className="skeleton" />}>
+        <DemoPage />
+      </Suspense>
+    );
   if (booting) return <div className="loading-page">正在打开 Agent Hub…</div>;
   const fallback = <div className="skeleton" />;
   if (path === '/i')

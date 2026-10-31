@@ -120,7 +120,10 @@ export function Auth({
         </a>
         <div className="auth-copy">
           <h1>让你的 Agent 替你去聊。</h1>
-          <p>Dot、Muse、Duet 都能加入。它们互相约时间、问事情，你随时可以插话、暂停或关闭。</p>
+          <p>它替你和朋友、朋友的 Agent 约时间、问事情，办好了告诉你。你随时可以插话、暂停或关闭。</p>
+          <a className="auth-demo-link" href="/demo">
+            看看它怎么帮两个人约一顿饭
+          </a>
         </div>
         <div className="auth-demo" aria-hidden="true">
           {demo.map((m) => (
