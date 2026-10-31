@@ -1,20 +1,16 @@
 import { env, server } from './runtime';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { base64url, randomToken } from '../src/shared/crypto';
 import { seedOwner, ownerHeaders, service } from './helpers';
 import { scopes } from '../src/shared/protocol';
+import { CimdFetchError } from '../src/server/oauth';
+import { runtimeFromEnvironment } from '../src/server/host';
 
 const base = 'http://localhost:8789',
   resource = `${base}/mcp`,
   callback = 'http://localhost:45678/callback';
-async function authorize(
-  platform: 'dot' | 'muse' = 'dot',
-  redirect = callback,
-  probeSelection = false,
-) {
-  const callback = redirect;
-  const u = await seedOwner('OAuthOwner');
-  const agent = await service().chats.createAgent(u.id, platform, 'Native ' + platform);
+/** Registers a public client for `callback` and builds a PKCE authorization request. */
+async function consentRequest(callback: string) {
   const register = await server.fetch(`${base}/oauth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -42,6 +38,16 @@ async function authorize(
     code_challenge_method: 'S256',
     state: randomToken(),
   });
+  return { client, params, verifier };
+}
+async function authorize(
+  platform: 'dot' | 'muse' = 'dot',
+  redirect = callback,
+  probeSelection = false,
+) {
+  const u = await seedOwner('OAuthOwner');
+  const agent = await service().chats.createAgent(u.id, platform, 'Native ' + platform);
+  const { client, params, verifier } = await consentRequest(redirect);
   const page = await server.fetch(`${base}/authorize?${params}`, {
     headers: ownerHeaders(u),
     redirect: 'manual',
@@ -50,14 +56,14 @@ async function authorize(
   expect(page.headers.get('Referrer-Policy')).toBe('origin');
   const csp = page.headers.get('Content-Security-Policy');
   expect(csp).toContain("form-action 'self'");
-  expect(csp).not.toContain(new URL(callback).origin);
+  expect(csp).not.toContain(new URL(redirect).origin);
   expect(csp).toContain("script-src 'self'");
   expect(csp).toContain("frame-ancestors 'none'");
   const html = await page.text(),
     handle = /name="handle" value="([^"]+)"/.exec(html)?.[1];
   expect(handle).toBeTruthy();
   expect(html).toContain('客户端名称由申请方提供');
-  expect(html).toContain(new URL(callback).hostname);
+  expect(html).toContain(new URL(redirect).hostname);
   if (redirect !== callback) {
     // A known native callback fixes the platform; only loopback tests may choose one.
     expect(html).toContain(`name="platform" value="${platform}"`);
@@ -124,7 +130,7 @@ async function authorize(
   expect(consent.status).toBe(200);
   expect(consent.headers.has('Location')).toBe(false);
   const location = new URL((await consent.json<{ redirectTo: string }>()).redirectTo);
-  expect(location.origin).toBe(new URL(callback).origin);
+  expect(location.origin).toBe(new URL(redirect).origin);
   expect(location.searchParams.get('iss')).toBe(base);
   expect(location.searchParams.get('state')).toBe(params.get('state'));
   const code = location.searchParams.get('code')!;
@@ -136,7 +142,7 @@ async function authorize(
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         client_id: client.client_id,
-        redirect_uri: callback,
+        redirect_uri: redirect,
         code,
         code_verifier: verifier,
         resource,
@@ -291,10 +297,102 @@ describe('native OAuth without copying API keys', () => {
       headers: {
         Authorization: `Bearer ${token.access_token}`,
         'Content-Type': 'application/json',
+        Origin: 'https://chatgpt.com',
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
     });
     expect(stale.status).toBe(401);
+    // The reset token gets the same challenge as an unknown one, with CORS for browser clients.
+    expect(stale.headers.get('WWW-Authenticate')).toBe(
+      `Bearer realm="OAuth", error="invalid_token", resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`,
+    );
+    expect(stale.headers.get('Access-Control-Allow-Origin')).toBe('https://chatgpt.com');
+    expect(stale.headers.get('Access-Control-Expose-Headers')).toContain('WWW-Authenticate');
+  });
+
+  it('sends a stale login back to passkey login, not sign-up, before consent', async () => {
+    const u = await seedOwner('StaleOwner');
+    const { params } = await consentRequest(callback);
+    const location = async (headers: Record<string, string> = {}) =>
+      new URL(
+        (
+          await server.fetch(`${base}/authorize?${params}`, { headers, redirect: 'manual' })
+        ).headers.get('Location')!,
+        base,
+      );
+    const anonymous = await location();
+    expect(anonymous.pathname).toBe('/login');
+    expect(anonymous.searchParams.has('reauth')).toBe(false);
+    expect(anonymous.searchParams.get('returnTo')).toBe(`/authorize?${params}`);
+    await env.DB.prepare(
+      'UPDATE browser_sessions SET authenticated_at=authenticated_at-901 WHERE user_id=?',
+    )
+      .bind(u.id)
+      .run();
+    const stale = await location(ownerHeaders(u));
+    expect(stale.pathname).toBe('/login');
+    expect(stale.searchParams.get('reauth')).toBe('1');
+    expect(stale.searchParams.get('returnTo')).toBe(`/authorize?${params}`);
+  });
+
+  it('rolls back the Agent changes when the authorization cannot be completed', async () => {
+    const u = await seedOwner('RetryOwner');
+    const agent = await service().chats.createAgent(u.id, 'dot', 'Retry dot');
+    const { params } = await consentRequest(callback);
+    const page = await server.fetch(`${base}/authorize?${params}`, {
+      headers: ownerHeaders(u),
+      redirect: 'manual',
+    });
+    const handle = /name="handle" value="([^"]+)"/.exec(await page.text())![1];
+    const cookies = page.headers
+      .getSetCookie()
+      .map((c) => c.split(';')[0])
+      .join('; ');
+    const approve = (agentId: string) =>
+      server.fetch(`${base}/authorize`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Origin: base,
+          Cookie: `${ownerHeaders(u).Cookie}; ${cookies}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          handle,
+          csrf: u.csrf,
+          decision: 'approve',
+          agentId,
+          platform: 'dot',
+        }),
+      });
+    const agents = () =>
+      env.DB.prepare('SELECT id,auth_version FROM agents WHERE owner_id=?')
+        .bind(u.id)
+        .all<{ id: string; auth_version: number }>()
+        .then((r) => r.results);
+    const before = await agents();
+    // e.g. the CIMD metadata fetch inside completeAuthorization times out.
+    const helpers = Object.getPrototypeOf(
+      (env as unknown as { OAUTH_PROVIDER: object }).OAUTH_PROVIDER,
+    );
+    const failing = vi
+      .spyOn(helpers, 'completeAuthorization')
+      .mockRejectedValue(
+        new CimdFetchError('https://client.example/oauth.json', new Error('timeout')),
+      );
+    try {
+      for (const choice of [agent.id, 'new']) {
+        const failed = await approve(choice);
+        expect(failed.status, choice).toBe(503);
+        expect(await agents(), choice).toEqual(before);
+      }
+    } finally {
+      failing.mockRestore();
+    }
+    // Nothing was consumed, so the same consent page can be retried.
+    const retried = await approve(agent.id);
+    expect(retried.status).toBe(200);
+    expect((await agents())[0].auth_version).toBe(before[0].auth_version + 1);
   });
 
   it('rejects authorization code replay', async () => {
@@ -343,5 +441,24 @@ describe('native OAuth without copying API keys', () => {
     expect(new URL(response.headers.get('Location')!).searchParams.get('error')).toBe(
       'invalid_request',
     );
+  });
+});
+
+describe('hosted runtime startup', () => {
+  it('starts with any message key version, so a rotated-out MESSAGE_KEY_V1 can be removed', () => {
+    vi.stubEnv('VERCEL', '');
+    vi.stubEnv('TURSO_DATABASE_URL', ':memory:');
+    vi.stubEnv('PUBLIC_ORIGIN', base);
+    vi.stubEnv('MESSAGE_KEY_V1', '');
+    vi.stubEnv('MESSAGE_KEY_V2', Buffer.alloc(32, 7).toString('base64url'));
+    try {
+      expect(runtimeFromEnvironment().env.MESSAGE_KEYS).toEqual({
+        2: Buffer.alloc(32, 7).toString('base64url'),
+      });
+      vi.stubEnv('MESSAGE_KEY_V2', '');
+      expect(() => runtimeFromEnvironment()).toThrow('MESSAGE_KEY_V');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

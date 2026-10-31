@@ -22,6 +22,8 @@ import {
   owner,
   publicOwner,
   rateLimit,
+  rateLimitRefund,
+  rateLimitUsed,
   requireBrowserOrigin,
   sessionCookieName,
   type HubBindings,
@@ -53,6 +55,21 @@ function registrationResponse(value: unknown): value is RegistrationResponseJSON
     (value.response.transports === undefined ||
       (Array.isArray(value.response.transports) &&
         value.response.transports.every((v) => typeof v === 'string')))
+  );
+}
+function authenticationResponse(value: unknown): value is AuthenticationResponseJSON {
+  return (
+    record(value) &&
+    typeof value.id === 'string' &&
+    value.id.length < 2048 &&
+    typeof value.rawId === 'string' &&
+    value.type === 'public-key' &&
+    (value.clientExtensionResults === undefined || record(value.clientExtensionResults)) &&
+    record(value.response) &&
+    typeof value.response.clientDataJSON === 'string' &&
+    typeof value.response.authenticatorData === 'string' &&
+    typeof value.response.signature === 'string' &&
+    (value.response.userHandle == null || typeof value.response.userHandle === 'string')
   );
 }
 
@@ -192,10 +209,20 @@ router.use('*', async (c, next) => {
   await next();
 });
 
-router.get('/signup-status', (c) => c.json({ open: c.env.SIGNUP_MODE === 'open' }));
+// The daily cap counts completed sign-ups only. It is also checked, read-only, before the
+// device creates a passkey, so nobody is left with a passkey that has no account.
+const signupDayKey = () => `signup-day:${Math.floor(nowSeconds() / 86400)}`;
+const signupFull = async (env: Env) =>
+  (await rateLimitUsed(env, signupDayKey(), 86400)) >= env.SIGNUP_DAILY_CAP;
+const signupFullMessage = '今日注册名额已满，请明天再试；已有账号不受影响';
+
+router.get('/signup-status', async (c) =>
+  c.json({ open: c.env.SIGNUP_MODE === 'open' && !(await signupFull(c.env)) }),
+);
 
 router.post('/register/options', async (c) => {
   ensure(c.env.SIGNUP_MODE === 'open', 'signup_closed', 403, '注册暂时关闭，已有账号可以正常登录');
+  ensure(!(await signupFull(c.env)), 'signup_closed', 403, signupFullMessage);
   const { name } = z
     .object({ name: displayNameSchema })
     .strict()
@@ -213,10 +240,10 @@ router.post('/register/verify', async (c) => {
   const challenge = await consumeChallenge(c, 'register'),
     data = asJson<{ name: string; userId: string }>(challenge.data_json);
   const info = await verifyCreation(c, body?.response, challenge.challenge);
-  // The daily cap counts completed sign-ups only.
-  const day = Math.floor(nowSeconds() / 86400);
-  await rateLimit(c.env, `signup-day:${day}`, c.env.SIGNUP_DAILY_CAP, 86400).catch(() => {
-    throw new HubError('signup_closed', 403, '今日注册名额已满，请明天再试；已有账号不受影响');
+  // Spend atomically here so concurrent sign-ups stay capped; a conflict gives the slot back.
+  const dayKey = signupDayKey();
+  await rateLimit(c.env, dayKey, c.env.SIGNUP_DAILY_CAP, 86400).catch(() => {
+    throw new HubError('signup_closed', 403, signupFullMessage);
   });
   const connection = db(c.env),
     at = nowSeconds();
@@ -229,6 +256,7 @@ router.post('/register/verify', async (c) => {
       audit(connection, 'owner_registered', data.userId, { owner: data.userId }, {}, at),
     ]);
   } catch {
+    await rateLimitRefund(c.env, dayKey, 86400);
     throw new HubError('registration_conflict', 409, '注册信息已变化，请重新开始');
   }
   await createSession(c, data.userId);
@@ -245,13 +273,9 @@ router.post('/login/options', async (c) => {
 });
 
 router.post('/login/verify', async (c) => {
-  const response = await c.req.json<AuthenticationResponseJSON>();
-  ensure(
-    typeof response.id === 'string' && response.id.length < 2048,
-    'invalid_credential',
-    400,
-    '无效的通行密钥',
-  );
+  const response: unknown = await c.req.json();
+  // Check the shape before the challenge is spent.
+  ensure(authenticationResponse(response), 'invalid_credential', 400, '无效的通行密钥');
   const challenge = await consumeChallenge(c, 'login'),
     connection = db(c.env);
   const credential = await connection

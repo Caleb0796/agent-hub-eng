@@ -5,7 +5,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
 } from '@simplewebauthn/browser';
 import { ArrowUpRight, Fingerprint, ShieldCheck } from 'lucide-react';
-import { api, ApiError, safeReturnPath } from './api';
+import { api, ApiError, initialAuthMode, safeReturnPath } from './api';
 import type { OwnerView } from './types';
 import { passkeyEnvironment, SystemBrowserNotice } from './ui';
 
@@ -32,13 +32,16 @@ export function passkeyError(err: unknown, mode: Mode): string {
 export function Auth({
   onLogin,
   intro,
+  signedIn = false,
 }: {
   onLogin: (owner: OwnerView) => void;
   intro?: ReactNode;
+  /** A session exists but needs a fresh login. */
+  signedIn?: boolean;
 }) {
   const params = new URLSearchParams(location.search);
   const [mode, setMode] = useState<Mode>(
-      location.pathname === '/login' && !params.get('returnTo') ? 'login' : 'register',
+      initialAuthMode(location.pathname, location.search, signedIn),
     ),
     [name, setName] = useState(''),
     [error, setError] = useState(''),

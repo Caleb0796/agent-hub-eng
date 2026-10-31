@@ -177,6 +177,21 @@ export async function rateLimit(
     .first<{ count: number }>();
   ensure(row && row.count <= limit, 'rate_limited', 429, '操作过于频繁，请稍后重试');
 }
+/** The current count of a rateLimit bucket, without spending from it. */
+export async function rateLimitUsed(env: Env, key: string, interval = 60): Promise<number> {
+  const row = await db(env)
+    .prepare('SELECT count FROM rate_limits WHERE key_hash=? AND bucket=?')
+    .bind(await sha256(key), Math.floor(nowSeconds() / interval))
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+/** Gives back one rateLimit slot spent on work that did not complete. */
+export async function rateLimitRefund(env: Env, key: string, interval = 60): Promise<void> {
+  await db(env)
+    .prepare('UPDATE rate_limits SET count=count-1 WHERE key_hash=? AND bucket=? AND count>0')
+    .bind(await sha256(key), Math.floor(nowSeconds() / interval))
+    .run();
+}
 
 export async function boundedRequest(request: Request, maximum = 96 * 1024): Promise<Request> {
   if (!request.body) return request;

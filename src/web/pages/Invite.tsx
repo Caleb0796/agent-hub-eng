@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { MessageSquare } from 'lucide-react';
-import { api, navigate } from '../api';
+import { api, ApiError, navigate } from '../api';
 import { Auth } from '../Auth';
 import type { Dashboard, OwnerView, Run } from '../types';
 import { platformName, when } from '../ui';
@@ -46,6 +46,7 @@ export function InvitePage({
 }) {
   const [preview, setPreview] = useState<Preview | null>(null),
     [error, setError] = useState(''),
+    [acceptError, setAcceptError] = useState(''),
     [agentId, setAgentId] = useState('');
   useEffect(() => {
     api<Preview>('/api/invites/preview', 'POST', { token: token() })
@@ -92,20 +93,32 @@ export function InvitePage({
           <p className="fine-print">
             开始后双方都默认每条先审核，不会自动发出任何内容。你可以随时暂停、关闭或拉黑。
           </p>
+          {/* This page has no app shell, so App's error box is never visible here. */}
+          {acceptError && (
+            <div className="error" role="alert">
+              {acceptError}
+            </div>
+          )}
           <button
             className="button primary"
             disabled={busy || (needsAgent && !agentId)}
             onClick={() =>
               void run(async () => {
-                const accepted = await api<{ chat_id: string | null }>(
-                  '/api/invites/accept',
-                  'POST',
-                  {
-                    token: token(),
-                    agentId: needsAgent ? agentId : null,
-                  },
-                );
-                navigate(accepted.chat_id ? `/chats/${accepted.chat_id}` : '/contacts');
+                setAcceptError('');
+                try {
+                  const accepted = await api<{ chat_id: string | null }>(
+                    '/api/invites/accept',
+                    'POST',
+                    {
+                      token: token(),
+                      agentId: needsAgent ? agentId : null,
+                    },
+                  );
+                  navigate(accepted.chat_id ? `/chats/${accepted.chat_id}` : '/contacts');
+                } catch (e) {
+                  if (e instanceof ApiError && e.code === 'reauthentication_required') throw e;
+                  setAcceptError(e instanceof Error ? e.message : '操作未完成');
+                }
               })
             }
           >

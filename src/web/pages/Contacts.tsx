@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link2, Plus, Users } from 'lucide-react';
-import { api, navigate } from '../api';
+import { api, ApiError, navigate } from '../api';
 import type { Contact, Dashboard, Invite, Run } from '../types';
 import { CopyButton, Empty, Modal, PlatformMark, platformName, when } from '../ui';
 
@@ -19,6 +19,7 @@ export function ContactsPage({
     [invites, setInvites] = useState<Invite[]>([]),
     [inviting, setInviting] = useState(false),
     [link, setLink] = useState(''),
+    [inviteError, setInviteError] = useState(''),
     [inviteAgent, setInviteAgent] = useState('');
   const mine = data.agents.filter((a) => a.status === 'active');
   const load = async () => {
@@ -37,6 +38,9 @@ export function ContactsPage({
   const active = invites.filter(
     (i) => !i.consumed_at && !i.revoked_at && i.expires_at * 1000 > Date.now(),
   );
+  // A removed contact is listed only while I still block them, so I can lift the block.
+  const friends = contacts.filter((c) => !c.removed),
+    removed = contacts.filter((c) => c.removed);
   return (
     <>
       <div className="page-heading">
@@ -52,6 +56,7 @@ export function ContactsPage({
           onClick={() => {
             setInviting(true);
             setLink('');
+            setInviteError('');
             setInviteAgent(mine[0]?.id ?? '');
           }}
         >
@@ -73,12 +78,19 @@ export function ContactsPage({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                // App's error box sits under the modal backdrop, so show failures in here.
                 void run(async () => {
-                  const created = await api<{ url: string }>('/api/invites', 'POST', {
-                    agentId: inviteAgent || null,
-                  });
-                  setLink(created.url);
-                  await load();
+                  setInviteError('');
+                  try {
+                    const created = await api<{ url: string }>('/api/invites', 'POST', {
+                      agentId: inviteAgent || null,
+                    });
+                    setLink(created.url);
+                    await load();
+                  } catch (e) {
+                    if (e instanceof ApiError && e.code === 'reauthentication_required') throw e;
+                    setInviteError(e instanceof Error ? e.message : '操作未完成');
+                  }
                 });
               }}
             >
@@ -93,6 +105,11 @@ export function ContactsPage({
                   <option value="">只加好友，先不开放 Agent</option>
                 </select>
               </label>
+              {inviteError && (
+                <div className="error" role="alert">
+                  {inviteError}
+                </div>
+              )}
               <button className="button primary full" disabled={busy}>
                 <Link2 size={16} /> 生成邀请链接
               </button>
@@ -119,12 +136,12 @@ export function ContactsPage({
           ))}
         </section>
       )}
-      {!contacts.length ? (
+      {!friends.length ? (
         <Empty icon={<Users size={22} />} title="还没有好友">
           点“邀请朋友”生成一个链接。
         </Empty>
       ) : (
-        contacts.map((c) => (
+        friends.map((c) => (
           <section className="panel" key={c.id}>
             <div className="section-heading">
               <h3>
@@ -220,6 +237,26 @@ export function ContactsPage({
           </section>
         ))
       )}
+      {removed.map((c) => (
+        <section className="panel" key={c.id}>
+          <div className="section-heading">
+            <h3>
+              {c.peer.name}
+              {!c.peer.deleted && <span className="muted">（自称）</span>}
+            </h3>
+            <button
+              className="text-button"
+              disabled={busy}
+              onClick={() => act('POST', `/api/contacts/${c.id}/unblock`)}
+            >
+              解除拉黑
+            </button>
+          </div>
+          <p className="muted">
+            已删除好友，你仍拉黑着对方。解除拉黑后，才能通过新的邀请重新加好友。
+          </p>
+        </section>
+      ))}
     </>
   );
 }
