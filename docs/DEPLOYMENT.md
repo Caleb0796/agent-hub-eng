@@ -10,7 +10,11 @@ Target: **Vercel Functions (Node.js) + Turso/libSQL** on one fixed HTTPS origin.
 | Origin         | https://agent-hub-v2-eta.vercel.app                             |
 | Turso database | `agent-hub-v2` (`iad1`, Starter plan)                           |
 
-**Every push to `main` deploys to production automatically and runs any new migrations against the live database.** CI does not gate this, so run `npm run check` before pushing. Vercel blocks automatic deployments for commit authors who are not on the team; if that happens, deploy the commit from a clean export:
+**Every push to `main` deploys to production automatically and runs any new migrations against the live database.** CI does not gate this, so run `npm run check` before pushing.
+
+The Vercel team is on the Hobby plan and this repository is private, so Vercel blocks any commit whose author is not the team owner (`Caleb0796`). Contributors therefore open a PR against `main`, and the owner merges it with **Create a merge commit**, the only merge method the repository allows. The merge commit's author is the owner, so it deploys and includes the contributor's commits. A contributor's direct push to `main` is not deployed until the owner's next commit. Blocked Vercel checks on contributors' PRs are expected; the `verify` check still runs.
+
+The owner can also deploy a commit from a clean export:
 
 ```bash
 mkdir /tmp/agent-hub-deploy && git archive HEAD | tar -x -C /tmp/agent-hub-deploy
