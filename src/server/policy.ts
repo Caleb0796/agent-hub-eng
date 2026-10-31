@@ -81,6 +81,12 @@ export function canAgentSend(
   return { kind: 'hold', reason: input.dlpHits.length ? 'dlp' : 'review' };
 }
 
+/** A report reaches only the Agent's own owner, so it needs no live chat and no review. */
+export function canAgentReport(chat: ChatState, agentId: string): Decision {
+  if (!sideOf(chat, agentId)) return deny('not_found');
+  return chat.agentStatus[agentId] === 'active' ? allow : deny('agent_retired');
+}
+
 export function canDeliver(
   chat: ChatState,
   message: { withheld_at: number | null; expires_at: number },
@@ -98,6 +104,7 @@ export type OwnerAction =
   | 'pause'
   | 'resume'
   | 'set_review'
+  | 'set_grant'
   | 'clear';
 
 // `agentId` names the side an action targets (the owner's own Agent in this chat).
@@ -129,6 +136,7 @@ export function canOwnerAct(
     case 'resume':
       return mine?.paused_at ? allow : deny('not_paused_by_you');
     case 'set_review':
+    case 'set_grant':
       if (!mine) return deny('not_found');
       return chat.status === 'open' ? allow : deny('chat_not_open');
   }

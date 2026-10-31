@@ -2,14 +2,26 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowLeft, Settings2 } from 'lucide-react';
 import { api, navigate } from '../api';
 import { Composer, type ComposerHandle, type Person } from '../chat/Composer';
-import { DraftRow, MessageRow } from '../chat/MessageRow';
+import { DraftRow, MessageRow, ReportRow } from '../chat/MessageRow';
 import { ChatSettings } from '../chat/Settings';
+import { ChatTasks } from '../chat/Tasks';
 import { usePoll } from '../poll';
 import type { ChatView, Run } from '../types';
-import { Avatar, day, when } from '../ui';
+import { Avatar, day, runErrorText, when } from '../ui';
 
 const GROUP_SECONDS = 300;
 const RECENT_CHANGE_SECONDS = 7 * 86400;
+const ONLINE_SECONDS = 120;
+
+/** Whether anyone is actually there, because a silent Agent otherwise looks broken. */
+function presence(side: ChatView['sides'][number]): string {
+  if (side.working) return '正在回复…';
+  if (side.runner === 'hub') return '在线';
+  if (!side.last_seen_at) return '还没上线过';
+  return Date.now() / 1000 - side.last_seen_at < ONLINE_SECONDS
+    ? '在线'
+    : `${when(side.last_seen_at)} 活跃，上线后才会回复`;
+}
 
 export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: boolean }) {
   const [chat, setChat] = useState<ChatView | null>(null),
@@ -90,7 +102,17 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
     };
   }, [sides]);
 
-  const count = (chat?.messages.length ?? 0) + (chat?.drafts.length ?? 0) + sending.length;
+  const count =
+    (chat?.messages.length ?? 0) +
+    (chat?.drafts.length ?? 0) +
+    (chat?.reports.length ?? 0) +
+    (chat?.sides.filter((s) => s.working).length ?? 0) +
+    sending.length;
+  // Opening the chat is reading what the Agent reported here.
+  const unreadReports = chat?.reports.filter((r) => !r.read).length ?? 0;
+  useEffect(() => {
+    if (unreadReports) void api(`/api/chats/${id}/reports/read`, 'POST').catch(() => undefined);
+  }, [id, unreadReports]);
   // Follows new messages unless the owner has scrolled up to read older ones.
   useLayoutEffect(() => {
     const el = stream.current;
@@ -128,6 +150,25 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
       Date.now() / 1000 - s.connection_changed_at < RECENT_CHANGE_SECONDS,
   );
   const lastMine = chat.messages.findLast((m) => m.mine)?.id;
+  const runError = mine.map((s) => s.run_error).find(Boolean);
+  const working = chat.sides.filter((s) => s.working);
+  const friend = chat.same_owner ? peer.agent_label : peer.owner_name;
+  const sideOf = (agentId: string) => chat.sides.find((s) => s.agent_id === agentId);
+  const reportRow = (r: ChatView['reports'][number]) => (
+    <ReportRow
+      key={r.id}
+      r={r}
+      name={sideOf(r.agent_id)?.agent_label ?? 'Agent'}
+      platform={sideOf(r.agent_id)?.platform}
+    />
+  );
+  let nextReport = 0;
+  const reportsBefore = (at: number) => {
+    const from = nextReport;
+    while (nextReport < chat.reports.length && chat.reports[nextReport].created_at < at)
+      nextReport++;
+    return chat.reports.slice(from, nextReport).map(reportRow);
+  };
 
   const send = (text: string) => {
     pinned.current = true;
@@ -155,7 +196,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
             <p>
               {chat.same_owner
                 ? '我的两个 Agent'
-                : `${peer.owner_name} 的 Agent，由你的 ${me.agent_label} 对话`}
+                : `${peer.owner_name} 的 Agent，${presence(peer)}。你这边是 ${me.agent_label}，${presence(me)}`}
             </p>
           </div>
           <button
@@ -234,6 +275,22 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
             ))}
           </div>
         )}
+        {runError && (
+          <div className="chat-banner">
+            <span>{runErrorText(runError)}</span>
+          </div>
+        )}
+        {chat.status === 'open' && (
+          <ChatTasks
+            chat={chat}
+            agentId={me.agent_id}
+            agentName={me.agent_label}
+            friend={friend}
+            run={run}
+            busy={busy}
+            onChanged={load}
+          />
+        )}
         {chat.agent_run_limited && (
           <div className="chat-banner">
             <span>
@@ -257,9 +314,9 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
             pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
         >
-          {!count && (
+          {!count && !chat.grants.length && (
             <div className="chat-empty">
-              <strong>还没有消息</strong>
+              <strong>说点什么，或者交给 Agent 一件事</strong>
               <p>
                 {chat.same_owner
                   ? '发一条消息，告诉你的 Agent 要做什么。'
@@ -278,6 +335,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
               m.sent_at - prev.sent_at < GROUP_SECONDS;
             return (
               <div key={m.id}>
+                {reportsBefore(m.sent_at)}
                 {newDay && (
                   <div className="day-line">
                     <span>{day(m.sent_at)}</span>
@@ -296,6 +354,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
               </div>
             );
           })}
+          {reportsBefore(Infinity)}
           {sending.map((s) => (
             <div className="msg sending" key={s.key}>
               <div className="msg-gutter">
@@ -325,6 +384,12 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
               />
             );
           })}
+          {working.map((s) => (
+            <div className="typing" key={s.agent_id}>
+              <span aria-hidden="true" />
+              {s.agent_label} 正在回复…
+            </div>
+          ))}
         </div>
         {chat.status === 'open' && (
           <Composer

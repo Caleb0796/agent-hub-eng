@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { MAX_GRANT_TEXT } from '../shared/constants';
 import { displayNameSchema, idSchema, textSchema } from '../shared/protocol';
 import {
   ensure,
@@ -137,6 +138,15 @@ router.post('/chats/:id/review', async (c) => {
 router.post('/chats/:id/clear', async (c) =>
   c.json(await chats(c).clearView((await write(c)).id, id(c))),
 );
+const grantText = z.string().trim().min(1).max(MAX_GRANT_TEXT);
+router.post('/chats/:id/grants', async (c) => {
+  const u = await write(c);
+  const input = await body(c, z.object({ text: grantText, agentId: idSchema.optional() }).strict());
+  return c.json(await chats(c).addGrant(u.id, { ...input, chatId: id(c) }), 201);
+});
+router.post('/chats/:id/reports/read', async (c) =>
+  c.json(await chats(c).markReportsRead((await write(c)).id, id(c))),
+);
 router.post('/chats/:id/messages', async (c) => {
   const u = await write(c);
   await rateLimit(c.env, `owner-send:${u.id}`, 60);
@@ -164,6 +174,23 @@ router.post('/drafts/:id/reject', async (c) =>
 
 // ------------------------------------------------------------------ agents
 
+router.delete('/grants/:id', async (c) =>
+  c.json(await chats(c).revokeGrant((await write(c)).id, id(c))),
+);
+router.get('/reports', async (c) =>
+  c.json({ reports: await chats(c).ownerReports((await owner(c)).id) }),
+);
+router.post('/reports/read', async (c) =>
+  c.json(await chats(c).markReportsRead((await write(c)).id)),
+);
+router.get('/agents/:id/grants', async (c) =>
+  c.json({ grants: await chats(c).standingGrants((await owner(c)).id, id(c)) }),
+);
+router.post('/agents/:id/grants', async (c) => {
+  const u = await write(c);
+  const input = await body(c, z.object({ text: grantText }).strict());
+  return c.json(await chats(c).addGrant(u.id, { ...input, agentId: id(c) }), 201);
+});
 router.post('/agents/hub', async (c) => {
   const u = await write(c);
   ensure(c.env.MUSE, 'hub_runner_unavailable', 409, '现在还不能一键创建 Agent');

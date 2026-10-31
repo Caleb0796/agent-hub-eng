@@ -27,6 +27,8 @@ const labels: Record<string, string> = {
   chat_resumed: '解除暂停',
   review_on: '打开发出前确认',
   review_off: '关闭发出前确认',
+  grant_added: '交给 Agent 一件事',
+  grant_removed: '收回交给 Agent 的事',
   window_opened: '打开自动窗口',
   window_closed: '关闭自动窗口',
   draft_approved: '批准草稿',

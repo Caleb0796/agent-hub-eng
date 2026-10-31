@@ -1,11 +1,12 @@
 import { memo } from 'react';
-import { Check, ShieldAlert, Undo2, X } from 'lucide-react';
+import { Check, MessageCircleQuestion, ShieldAlert, Undo2, X } from 'lucide-react';
 import type { ChatView } from '../types';
 import { Avatar, clock, platformName } from '../ui';
 import { MessageText } from './Text';
 
 type Message = ChatView['messages'][number];
 type Draft = ChatView['drafts'][number];
+type Report = ChatView['reports'][number];
 
 function deliveryText(m: Message): string {
   if (m.text === null) return '已撤回';
@@ -90,6 +91,35 @@ export const MessageRow = memo(
     a.names === b.names &&
     a.myNames === b.myNames,
 );
+
+/** What an Agent told only its owner: the other side never gets it. */
+export const ReportRow = memo(function ReportRow({
+  r,
+  name,
+  platform,
+}: {
+  r: Report;
+  name: string;
+  platform?: string;
+}) {
+  return (
+    <div className={r.needs_owner ? 'msg report asks' : 'msg report'}>
+      <div className="msg-gutter">
+        <Avatar kind="agent" name={name} platform={platform} />
+      </div>
+      <div className="msg-body">
+        <div className="msg-head">
+          <span className="msg-name plain">{name}</span>
+          <span className="role draft-tag">只有你能看到</span>
+          <time>{clock(r.created_at)}</time>
+        </div>
+        <div className="msg-text">
+          {r.needs_owner && <MessageCircleQuestion size={15} />} {r.text}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 /** Shown only to its own owner, like an ephemeral message, until they decide. */
 export function DraftRow({

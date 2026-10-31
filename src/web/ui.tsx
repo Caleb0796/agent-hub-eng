@@ -162,3 +162,10 @@ export function SystemBrowserNotice() {
     </div>
   );
 }
+
+const runErrors: Record<string, string> = {
+  model_unavailable: '刚才没能回复，稍后会自动再试。',
+  budget_exhausted: '今天的回复次数用完了，稍后会自动恢复。',
+  bad_output: '刚才有一条没能回复。再发一条消息就好。',
+};
+export const runErrorText = (code: string | null): string => (code ? (runErrors[code] ?? '') : '');

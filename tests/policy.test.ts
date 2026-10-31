@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_RUN_LIMIT,
+  canAgentReport,
   canAgentSend,
   canDeliver,
   canOwnerAct,
@@ -176,6 +177,25 @@ describe('permission matrix', () => {
     expect(canDeliver(chat(), { ...m, withheld_at: now }, now)).toBe(false);
     expect(canDeliver(chat(), { ...m, expires_at: now }, now)).toBe(false);
     expect(canDeliver(chat({ blocked: true }), m, now)).toBe(false);
+  });
+});
+
+describe('reports and instructions', () => {
+  it('lets an active Agent in the chat report, whatever state the chat is in', () => {
+    expect(canAgentReport(chat({ status: 'closed' }), 'A')).toEqual({ kind: 'allow' });
+    expect(canAgentReport(chat(), 'C')).toEqual({ kind: 'deny', code: 'not_found' });
+    expect(canAgentReport(chat({ agentStatus: { A: 'revoked', B: 'active' } }), 'A')).toEqual({
+      kind: 'deny',
+      code: 'agent_retired',
+    });
+  });
+  it('lets only an owner hand things to their own Agent', () => {
+    expect(canOwnerAct(chat(), 'alice', 'set_grant', 'A')).toEqual({ kind: 'allow' });
+    expect(canOwnerAct(chat(), 'bob', 'set_grant', 'A')).toEqual({ kind: 'deny', code: 'not_found' });
+    expect(canOwnerAct(chat({ status: 'closed' }), 'alice', 'set_grant', 'A')).toEqual({
+      kind: 'deny',
+      code: 'chat_not_open',
+    });
   });
 });
 

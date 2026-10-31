@@ -32,5 +32,7 @@ export const sendInput = z
     text: textSchema,
     reply_to: idSchema.optional(),
     idempotency_key: idempotencySchema,
+    to_owner: z.boolean().optional(),
+    needs_owner: z.boolean().optional(),
   })
   .strict();

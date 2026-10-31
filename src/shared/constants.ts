@@ -3,3 +3,4 @@ export const platforms = ['dot', 'muse', 'duet'] as const;
 export type Platform = (typeof platforms)[number];
 export const platformNames: Record<Platform, string> = { dot: 'Dot', muse: 'Muse', duet: 'Duet' };
 export const MAX_TEXT = 4000;
+export const MAX_GRANT_TEXT = 1000;

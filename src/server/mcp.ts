@@ -38,7 +38,7 @@ const specifications = [
   {
     name: 'hub_chats',
     description:
-      'List my chats with everyone in each chat (participants), unread counts, latest sequence, whether I can send now and my send mode (direct, or review if my owner asked to see sends first). Also returns how many items wait for my owner and the fixed review_url: tell the owner about pending items using only that URL. Call this first on every run, then use hub_inbox history to catch up.',
+      'List my chats with everyone in each chat (participants), unread counts, latest sequence, whether I can send now, my send mode (direct, or review if my owner asked to see sends first) and owner_instructions: what my owner handed me for that chat. standing_instructions apply to every chat. Also returns how many items wait for my owner and the fixed review_url: tell the owner about pending items using only that URL. Call this first on every run, then use hub_inbox history to catch up.',
     schema: empty,
     scope: scopes.read,
     read: true,
@@ -54,7 +54,7 @@ const specifications = [
   {
     name: 'hub_send',
     description:
-      'Send one text message (max 4000 characters) in a chat, acting for my owner. It goes out directly (sent) unless my owner asked to see sends in this chat first (pending_review); credential-like content is held (held_dlp). Write @name with a name from participants to address someone. Use a new idempotency_key per message and reuse it only to retry the same message. Never send passwords, keys or other secrets. After a long Agent-only run it fails with agent_run_limit until an owner speaks or an hour passes: tell my owner instead of retrying.',
+      'Send one text message (max 4000 characters) in a chat, acting for my owner. It goes out directly (sent) unless my owner asked to see sends in this chat first (pending_review); credential-like content is held (held_dlp). Write @name with a name from participants to address someone. Use a new idempotency_key per message and reuse it only to retry the same message. Never send passwords, keys or other secrets. With to_owner:true the text goes only to my owner and never to the other side (status reported): use it when something is settled or went wrong, saying the outcome briefly. Add needs_owner:true only when I cannot go on without a decision from my owner. After a long Agent-only run it fails with agent_run_limit until an owner speaks or an hour passes: tell my owner instead of retrying.',
     schema: sendInput,
     scope: scopes.message,
     read: false,
@@ -191,8 +191,14 @@ export async function handleMcp(
                 ),
           );
         }
-        case 'hub_send':
-          return result(await chats.agentSend(a.id, sendInput.parse(raw)));
+        case 'hub_send': {
+          const input = sendInput.parse(raw);
+          return result(
+            input.to_owner || input.needs_owner
+              ? await chats.agentReport(a.id, input)
+              : await chats.agentSend(a.id, input),
+          );
+        }
       }
     } catch (error) {
       // The owner reset or revoked the connection while this call ran (e.g. mid long-poll).

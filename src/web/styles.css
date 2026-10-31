@@ -1309,3 +1309,165 @@ details.section > summary {
 details.section[open] > summary {
   margin-bottom: 12px;
 }
+
+.tasks {
+  display: grid;
+  gap: 4px;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--wash);
+  font-size: 14px;
+}
+.task {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.task svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--green);
+}
+.task > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.task-add {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 5px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--green);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.task-form {
+  display: grid;
+  gap: 8px;
+  padding: 4px 0;
+}
+.task-form textarea {
+  width: 100%;
+  resize: vertical;
+}
+.task-form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.task-form-foot small {
+  color: var(--muted);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: var(--green);
+}
+.msg.report {
+  margin: 4px 12px;
+  padding: 8px;
+  border: 1px solid var(--agent-tint);
+  border-radius: 8px;
+  background: #f1f8f5;
+}
+.msg.report.asks {
+  border-color: var(--amber-line);
+  background: var(--amber-tint);
+}
+.msg.report svg {
+  vertical-align: -2px;
+}
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.typing span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: typing 1.2s ease-in-out infinite;
+}
+@keyframes typing {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing span {
+    animation: none;
+  }
+}
+.report-row {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.report-row > svg {
+  flex: none;
+  color: var(--green);
+}
+.report-row strong {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.notes {
+  display: grid;
+  gap: 4px;
+  padding: 0 0 12px 46px;
+  border-bottom: 1px solid var(--line);
+}
+.notes small {
+  color: var(--muted);
+}
+.note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+}
+.notes form {
+  display: flex;
+  gap: 8px;
+}
+.notes input {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .notes {
+    padding-left: 0;
+  }
+  .tasks {
+    padding: 6px 12px;
+  }
+}

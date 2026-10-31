@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { createClient } from '@libsql/client';
 
-// Re-encrypts message and draft bodies with the newest MESSAGE_KEY_V<n> after a key is added.
+// Re-encrypts message, draft, grant and report bodies with the newest MESSAGE_KEY_V<n> after a key is added.
 // Format matches src/server/vault.ts: base64url(iv | ciphertext | tag), AAD bound to the row.
 const keys = new Map();
 for (const [name, value] of Object.entries(process.env)) {
@@ -30,16 +30,18 @@ const client = createClient({
 });
 let count = 0;
 try {
-  for (const [table, prefix] of [
-    ['messages', 'message'],
-    ['drafts', 'draft'],
+  for (const [table, prefix, scope] of [
+    ['messages', 'message', 'chat_id'],
+    ['drafts', 'draft', 'chat_id'],
+    ['agent_grants', 'grant', 'agent_id'],
+    ['agent_reports', 'report', 'chat_id'],
   ]) {
     const rows = await client.execute({
-      sql: `SELECT id,chat_id,ciphertext,key_version FROM ${table} WHERE key_version<>?`,
+      sql: `SELECT id,${scope} AS scope,ciphertext,key_version FROM ${table} WHERE key_version<>?`,
       args: [current],
     });
     for (const r of rows.rows) {
-      const aad = `${prefix}|${r.chat_id}|${r.id}`;
+      const aad = `${prefix}|${r.scope}|${r.id}`;
       await client.execute({
         sql: `UPDATE ${table} SET ciphertext=?,key_version=? WHERE id=? AND key_version=?`,
         args: [

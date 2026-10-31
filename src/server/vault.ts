@@ -56,6 +56,8 @@ export class Vault {
 
 export const messageAad = (chatId: string, id: string) => `message|${chatId}|${id}`;
 export const draftAad = (chatId: string, id: string) => `draft|${chatId}|${id}`;
+export const grantAad = (agentId: string, id: string) => `grant|${agentId}|${id}`;
+export const reportAad = (chatId: string, id: string) => `report|${chatId}|${id}`;
 
 export function messageKeysFrom(
   source: Record<string, string | undefined>,

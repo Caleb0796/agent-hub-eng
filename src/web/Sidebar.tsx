@@ -1,5 +1,13 @@
 import { memo } from 'react';
-import { Activity, ClipboardCheck, Fingerprint, LogOut, Plus, Users } from 'lucide-react';
+import {
+  Activity,
+  CircleCheck,
+  ClipboardCheck,
+  Fingerprint,
+  LogOut,
+  Plus,
+  Users,
+} from 'lucide-react';
 import { navigate } from './api';
 import { lastSeen } from './seen';
 import type { Dashboard, OwnerView } from './types';
@@ -9,7 +17,8 @@ type Chat = Dashboard['chats'][number];
 
 function ChatRow({ chat, active }: { chat: Chat; active: boolean }) {
   const unread = !active && !!chat.last_message_at && chat.last_message_at > lastSeen(chat.id);
-  const attention = chat.awaiting_my_approval || chat.pending_drafts > 0;
+  const waiting = chat.pending_drafts + chat.reports_waiting;
+  const attention = chat.awaiting_my_approval || waiting > 0;
   return (
     <button
       className={`side-chat${active ? ' active' : ''}${unread || attention ? ' unread' : ''}${chat.status === 'closed' ? ' closed' : ''}`}
@@ -38,8 +47,8 @@ function ChatRow({ chat, active }: { chat: Chat; active: boolean }) {
                     : `通过 ${chat.my_agent.label}`}
         </small>
       </span>
-      {chat.pending_drafts > 0 ? (
-        <span className="count">{chat.pending_drafts}</span>
+      {waiting > 0 ? (
+        <span className="count">{waiting}</span>
       ) : chat.awaiting_my_approval ? (
         <span className="count">1</span>
       ) : (
@@ -65,6 +74,7 @@ export const Sidebar = memo(function Sidebar({
     ...(drafts || path === '/review'
       ? [{ path: '/review', label: '待你确认', icon: ClipboardCheck, count: drafts }]
       : []),
+    { path: '/reports', label: '结果', icon: CircleCheck, count: data?.reports_waiting ?? 0 },
     { path: '/contacts', label: '好友', icon: Users, count: 0 },
     { path: '/agents', label: '我的 Agent', icon: Fingerprint, count: 0 },
     { path: '/activity', label: '活动记录', icon: Activity, count: 0 },

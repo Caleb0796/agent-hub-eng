@@ -19,6 +19,7 @@ const ContactsPage = lazy(async () => ({
 }));
 const InvitePage = lazy(async () => ({ default: (await import('./pages/Invite')).InvitePage }));
 const RecoverPage = lazy(async () => ({ default: (await import('./pages/Recover')).RecoverPage }));
+const ReportsPage = lazy(async () => ({ default: (await import('./pages/Reports')).ReportsPage }));
 const ReviewPage = lazy(async () => ({ default: (await import('./pages/Review')).ReviewPage }));
 
 // Requests and messages to confirm already show as badges in the sidebar.
@@ -30,6 +31,7 @@ const notificationText: Record<string, string> = {
 
 const pageTitles: Record<string, string> = {
   '/new': '开始新聊天',
+  '/reports': '结果',
   '/review': '待你确认',
   '/contacts': '好友',
   '/agents': '我的 Agent',
@@ -187,6 +189,8 @@ export function App() {
             <Suspense fallback={fallback}>
               {!data ? (
                 fallback
+              ) : path === '/reports' ? (
+                <ReportsPage version={data} />
               ) : path === '/review' ? (
                 <ReviewPage run={run} busy={busy} version={data} />
               ) : path === '/contacts' ? (
