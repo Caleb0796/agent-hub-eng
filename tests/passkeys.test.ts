@@ -2,8 +2,18 @@ import { env, server } from './runtime';
 import { describe, it, expect } from 'vitest';
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server';
 import { randomToken, sha256 } from '../src/shared/crypto';
+import { rateLimitUsed } from '../src/server/common';
+import { initialAuthMode } from '../src/web/api';
 import { Browser, authenticator } from './support/passkey-device';
 const makeBrowser = () => new Browser((input, init) => server.fetch(input, init));
+// A separate client address gets its own auth and sign-up rate-limit buckets.
+const browserAt = (ip: string) =>
+  new Browser((input, init) =>
+    server.fetch(input, {
+      ...init,
+      headers: { ...(init?.headers as Record<string, string>), 'X-Forwarded-For': ip },
+    }),
+  );
 
 async function register(
   browser: Browser,
@@ -124,5 +134,63 @@ describe('passkey owner authentication', () => {
       await lost.login(login.options.challenge, setup.options.user.id),
     );
     expect(old.status).toBe(401);
+  });
+
+  it('checks the daily sign-up cap before a passkey is created and refunds conflicts', async () => {
+    const used = () =>
+      rateLimitUsed(env, `signup-day:${Math.floor(Date.now() / 1000 / 86400)}`, 86400);
+    const device = await authenticator();
+    expect((await register(browserAt('cap-1'), device, 'Cap')).verified.status).toBe(201);
+    const before = await used();
+    // The same authenticator again: it verifies, but the passkey id is already registered.
+    const conflict = await register(browserAt('cap-2'), device, 'Cap again');
+    expect(conflict.verified.status).toBe(409);
+    expect(await used()).toBe(before);
+    const cap = env.SIGNUP_DAILY_CAP;
+    env.SIGNUP_DAILY_CAP = before;
+    try {
+      const full = await browserAt('cap-3').post('/api/auth/register/options', { name: 'Late' });
+      expect(full.status).toBe(403);
+      expect((await full.json<{ error: string }>()).error).toBe('signup_closed');
+      const status = await server.fetch('http://localhost:8789/api/auth/signup-status');
+      expect(await status.json()).toEqual({ open: false });
+    } finally {
+      env.SIGNUP_DAILY_CAP = cap;
+    }
+  });
+
+  it('rejects a malformed login response with 400 without spending the challenge', async () => {
+    const browser = browserAt('login-shape'),
+      device = await authenticator();
+    const { setup } = await register(browser, device, 'Shape');
+    await browser.post('/api/auth/logout', {});
+    const login = await (
+      await browser.post('/api/auth/login/options', {})
+    ).json<{
+      options: { challenge: string };
+    }>();
+    for (const body of [null, { id: device.id }]) {
+      const bad = await browser.post('/api/auth/login/verify', body);
+      expect(bad.status).toBe(400);
+      expect((await bad.json<{ error: string }>()).error).toBe('invalid_credential');
+    }
+    const logged = await browser.post(
+      '/api/auth/login/verify',
+      await device.login(login.options.challenge, setup.options.user.id),
+    );
+    expect(logged.status).toBe(200);
+  });
+});
+
+describe('sign-in page mode', () => {
+  // A stale session or a re-login redirect must never land on the form that makes a new account.
+  it.each([
+    ['/login', '?returnTo=%2Fchats%2Fx', true, 'login'],
+    ['/login', '?reauth=1&returnTo=%2Fauthorize', false, 'login'],
+    ['/login', '', false, 'login'],
+    ['/login', '?returnTo=%2Fauthorize', false, 'register'],
+    ['/i', '', false, 'register'],
+  ] as const)('%s%s signed in=%s → %s', (pathname, search, signedIn, mode) => {
+    expect(initialAuthMode(pathname, search, signedIn)).toBe(mode);
   });
 });

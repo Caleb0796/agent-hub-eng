@@ -179,4 +179,18 @@ describe('vault and DLP', () => {
     expect(scan('password: hunter2hunter2')).toEqual(['password assignment']);
     expect(scan('明天下午三点一起吃饭')).toEqual([]);
   });
+  // Long values are built at runtime so scripts/check-secrets.mjs does not flag this file.
+  it.each([
+    ['DB_PASSWORD=correcthorsebattery', ['password assignment']],
+    ['POSTGRES_PASSWORD=hunter2hunter2', ['password assignment']],
+    ['OAUTH_CLIENT_SECRET=' + 'a'.repeat(16), ['password assignment']],
+    ['STRIPE_API_KEY=' + 'a'.repeat(16), ['password assignment']],
+    ['SLACK_ACCESS_TOKEN=' + 'a'.repeat(16), ['password assignment']],
+    ['{"password": "supersecretvalue123"}', ['password assignment']],
+    ['{"access_token":"' + 'a'.repeat(26) + '"}', ['password assignment', 'literal secret value']],
+    ['authorization: bearer ' + 'a'.repeat(40), ['bearer credential']],
+    ['{"aws_secret_access_key": "' + 'A'.repeat(40) + '"}', ['AWS secret key']],
+  ])('flags env-style, JSON and lowercase credentials: %s', (text, expected) => {
+    expect(scan(text)).toEqual(expected);
+  });
 });

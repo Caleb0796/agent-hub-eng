@@ -123,14 +123,18 @@ const denyMessages: Record<DenyCode, [HttpStatus, string]> = {
   not_paused_by_you: [409, '只能解除自己设置的暂停'],
   already_closed: [409, '聊天已经关闭'],
 };
+function denied(code: DenyCode): HubError {
+  const [status, message] = denyMessages[code];
+  return new HubError(code, status, message);
+}
 function enforce(decision: Decision): void {
-  if (decision.kind !== 'deny') return;
-  const [status, message] = denyMessages[decision.code];
-  throw new HubError(decision.code, status, message);
+  if (decision.kind === 'deny') throw denied(decision.code);
 }
 const notFound = () => new HubError('not_found', 404, '不存在或无权访问');
 const sorted = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// The token's connection is still the Agent's current one (binds agent id, auth_version).
+const CONNECTED = "id=? AND auth_version=? AND status='active'";
 
 export interface SendResult {
   status: 'sent' | 'pending_review' | 'held_dlp' | 'rejected' | 'expired';
@@ -466,13 +470,13 @@ export class ChatService {
     const { invite, agent: inviterAgent } = await this.usableInvite(token);
     ensure(invite.inviter_id !== ownerId, 'own_invite', 409, '不能接受自己发出的邀请');
     const mine = agentId ? await this.ownAgent(ownerId, agentId) : null;
-    const at = this.now();
+    const at = this.now(),
+      [low, high] = sorted(ownerId, invite.inviter_id);
     let contact = await this.contactBetween(ownerId, invite.inviter_id);
     ensure(!this.blockedRow(contact), 'blocked', 403, '你们之间存在拉黑，无法添加');
     const statements: Statement[] = [];
     const contactId = contact?.id ?? crypto.randomUUID();
     if (!contact) {
-      const [low, high] = sorted(ownerId, invite.inviter_id);
       statements.push(
         this.sql(
           'INSERT INTO contacts(id,owner_low,owner_high,created_at) VALUES(?,?,?,?)',
@@ -488,15 +492,25 @@ export class ChatService {
       statements.push(
         audit(this.connection, 'contact_added', contactId, { owner: ownerId }, {}, at),
       );
-    // Unconditional on purpose: the invite_single_use trigger aborts the whole batch when a
-    // concurrent acceptance or revocation got there first.
-    const consume = this.sql(
-      'UPDATE contact_invites SET consumed_by=?,consumed_at=? WHERE token_hash=?',
-      ownerId,
-      at,
-      invite.token_hash,
+    // A spent or revoked invite fires the invite_single_use trigger, which aborts the batch.
+    // Otherwise consume only while neither owner blocks the other and a contact read as live
+    // was not removed meanwhile (removal drops exposures this batch would not restore).
+    const live = !!contact && !contact.removed_at;
+    statements.unshift(
+      this.sql(
+        `UPDATE contact_invites SET consumed_by=?,consumed_at=? WHERE token_hash=? AND expires_at>?
+          AND NOT EXISTS(SELECT 1 FROM contacts WHERE owner_low=? AND owner_high=? AND (blocked_by_low_at IS NOT NULL OR blocked_by_high_at IS NOT NULL))${
+            live ? ' AND EXISTS(SELECT 1 FROM contacts WHERE id=? AND removed_at IS NULL)' : ''
+          }`,
+        ownerId,
+        at,
+        invite.token_hash,
+        at,
+        low,
+        high,
+        ...(live ? [contactId] : []),
+      ),
     );
-    statements.unshift(consume);
     let chatId: string | null = null;
     if (inviterAgent && mine) {
       for (const a of [inviterAgent, mine])
@@ -520,18 +534,34 @@ export class ChatService {
       chatId = opened.id;
       statements.push(...opened.statements);
     }
-    statements.push(this.notify(invite.inviter_id, 'invite_accepted', contactId));
-    try {
-      await this.connection.batch(statements);
-    } catch (error) {
+    // The inviter is found only through the invite this call consumed. If the consume matched
+    // nothing (expired, blocked, removed), owner_id is NULL and NOT NULL rolls back the batch.
+    statements.push(
+      this.sql(
+        `INSERT INTO notifications(id,owner_id,kind,entity_id,created_at)
+          VALUES(?,(SELECT inviter_id FROM contact_invites WHERE token_hash=? AND consumed_by=? AND consumed_at=?),'invite_accepted',?,?)`,
+        crypto.randomUUID(),
+        invite.token_hash,
+        ownerId,
+        at,
+        contactId,
+        at,
+      ),
+    );
+    await this.connection.batch(statements).catch(async (error: unknown) => {
+      // Nothing was written; say why if the link or the contact changed meanwhile.
       ensure(
         !String(error).includes('invite_spent'),
         'invite_unavailable',
         410,
         '邀请链接已被使用',
       );
+      await this.usableInvite(token);
+      const now = await this.contactBetween(ownerId, invite.inviter_id);
+      ensure(!this.blockedRow(now), 'blocked', 403, '你们之间存在拉黑，无法添加');
+      ensure(!live || !now?.removed_at, 'contact_changed', 409, '好友关系刚刚发生变化，请重试');
       throw error;
-    }
+    });
     contact = await this.contactBetween(ownerId, invite.inviter_id);
     return { contact_id: contact!.id, chat_id: chatId };
   }
@@ -582,10 +612,12 @@ export class ChatService {
     return { id, statements };
   }
 
+  /** Live contacts, plus removed ones I still block so that I can lift the block. */
   async contacts(ownerId: string) {
     const rows = (
       await this.sql(
-        'SELECT * FROM contacts WHERE (owner_low=? OR owner_high=?) AND removed_at IS NULL ORDER BY created_at DESC',
+        `SELECT * FROM contacts WHERE (owner_low=? AND (removed_at IS NULL OR blocked_by_low_at IS NOT NULL))
+          OR (owner_high=? AND (removed_at IS NULL OR blocked_by_high_at IS NOT NULL)) ORDER BY created_at DESC`,
         ownerId,
         ownerId,
       ).all<ContactRow>()
@@ -594,16 +626,20 @@ export class ChatService {
     for (const c of rows) {
       const peer = this.peerOf(c, ownerId),
         mineIsLow = c.owner_low === ownerId;
-      const exposed = (
-        await this.sql(
-          `SELECT a.id,a.owner_id,a.label,a.platform,a.status FROM contact_agents ca JOIN agents a ON a.id=ca.agent_id
-            WHERE ca.contact_id=? AND a.status='active'`,
-          c.id,
-        ).all<Pick<AgentRow, 'id' | 'owner_id' | 'label' | 'platform' | 'status'>>()
-      ).results;
+      // Removal deleted every exposure, so a removed contact has no Agents to show.
+      const exposed = c.removed_at
+        ? []
+        : (
+            await this.sql(
+              `SELECT a.id,a.owner_id,a.label,a.platform,a.status FROM contact_agents ca JOIN agents a ON a.id=ca.agent_id
+                WHERE ca.contact_id=? AND a.status='active'`,
+              c.id,
+            ).all<Pick<AgentRow, 'id' | 'owner_id' | 'label' | 'platform' | 'status'>>()
+          ).results;
       out.push({
         id: c.id,
         peer: { id: peer, ...(await this.ownerName(peer)) },
+        removed: !!c.removed_at,
         blocked_by_me: !!(mineIsLow ? c.blocked_by_low_at : c.blocked_by_high_at),
         blocked_by_peer: !!(mineIsLow ? c.blocked_by_high_at : c.blocked_by_low_at),
         my_agents: exposed.filter((a) => a.owner_id === ownerId).map((a) => a.id),
@@ -707,10 +743,19 @@ export class ChatService {
     return { ok: true };
   }
 
-  /** Clears only my block; chats stay closed and need a new request. */
+  /**
+   * Clears only my block; chats stay closed and need a new request. This also works after
+   * either side removed the contact, so a block never outlives the blocker's wish.
+   */
   async unblock(ownerId: string, contactId: string) {
-    const c = await this.ownContact(ownerId, contactId),
-      column = c.owner_low === ownerId ? 'blocked_by_low_at' : 'blocked_by_high_at';
+    const c = await this.sql(
+      'SELECT * FROM contacts WHERE id=? AND (owner_low=? OR owner_high=?)',
+      contactId,
+      ownerId,
+      ownerId,
+    ).first<ContactRow>();
+    if (!c) throw notFound();
+    const column = c.owner_low === ownerId ? 'blocked_by_low_at' : 'blocked_by_high_at';
     await this.connection.batch([
       this.sql(`UPDATE contacts SET ${column}=NULL WHERE id=?`, contactId),
       audit(this.connection, 'contact_unblocked', contactId, { owner: ownerId }),
@@ -775,7 +820,10 @@ export class ChatService {
     return side;
   }
 
-  /** Withholds undelivered messages and expires pending drafts for the given chats. */
+  /**
+   * Withholds undelivered messages, expires pending drafts and ends auto windows for the given
+   * chats, so a reopened chat starts in review mode. Pauses stay: only the pauser lifts one.
+   */
   private closeStatements(chatIds: string[], reason: string, by: string): Statement[] {
     const at = this.now(),
       out: Statement[] = [];
@@ -794,15 +842,18 @@ export class ChatService {
           at,
           id,
         ),
+        this.sql('UPDATE chat_sides SET auto_until=NULL,auto_left=0 WHERE chat_id=?', id),
         audit(this.connection, 'chat_closed', id, { owner: by }, { reason }, at),
       );
     return out;
   }
+  // Holds back what a recipient (see recipients()) has not taken yet.
   private withholdUndelivered(chatId: string, at: number): Statement {
     return this.sql(
       `UPDATE messages SET withheld_at=? WHERE chat_id=? AND withheld_at IS NULL AND (
         (sender_kind='agent' AND seq>(SELECT s.delivered_seq FROM chat_sides s WHERE s.chat_id=messages.chat_id AND s.agent_id<>messages.sender_agent_id))
-        OR (sender_kind='owner' AND seq>(SELECT MIN(s.delivered_seq) FROM chat_sides s WHERE s.chat_id=messages.chat_id)))`,
+        OR (sender_kind='owner' AND seq>(SELECT MIN(s.delivered_seq) FROM chat_sides s JOIN chats c ON c.id=s.chat_id
+          WHERE s.chat_id=messages.chat_id AND (c.same_owner=1 OR s.owner_id<>messages.sender_owner_id))))`,
       at,
       chatId,
     );
@@ -988,6 +1039,7 @@ export class ChatService {
   ) {
     const loaded = await this.ownerLoad(ownerId, chatId, 'set_window', agentId),
       side = this.mySide(loaded, ownerId, agentId),
+      peer = loaded.sides.find((s) => s.owner_id !== ownerId),
       at = this.now();
     await this.connection.batch([
       this.sql(
@@ -1005,6 +1057,8 @@ export class ChatService {
         { minutes, count },
         at,
       ),
+      // Remind the other owner to decide on their own side; nobody opens it for them.
+      ...(peer ? [this.notify(peer.owner_id, 'window_opened', chatId)] : []),
     ]);
     return this.ownerChat(ownerId, chatId);
   }
@@ -1060,24 +1114,29 @@ export class ChatService {
         : { status: d.status, draft_id: d.id };
   }
 
-  async agentSend(
-    agentId: string,
-    input: { chat_id: string; text: string; reply_to?: string; idempotency_key: string },
-  ): Promise<SendResult> {
-    ensure(input.text.length <= MAX_TEXT, 'text_too_long', 400, `单条不超过 ${MAX_TEXT} 字符`);
-    // Idempotency spans drafts and messages so a retry after approval finds the same message.
+  /** Idempotency spans drafts and messages so a retry after approval finds the same message. */
+  private async priorSend(agentId: string, key: string): Promise<SendResult | null> {
     const draft = await this.sql(
       'SELECT * FROM drafts WHERE agent_id=? AND idempotency_key=?',
       agentId,
-      input.idempotency_key,
+      key,
     ).first<DraftRow>();
     if (draft) return this.draftResult(draft);
     const sent = await this.sql(
       'SELECT id FROM messages WHERE sender_agent_id=? AND idempotency_key=?',
       agentId,
-      input.idempotency_key,
+      key,
     ).first<{ id: string }>();
-    if (sent) return { status: 'sent' as const, message_id: sent.id };
+    return sent ? { status: 'sent' as const, message_id: sent.id } : null;
+  }
+
+  async agentSend(
+    agentId: string,
+    input: { chat_id: string; text: string; reply_to?: string; idempotency_key: string },
+  ): Promise<SendResult> {
+    ensure(input.text.length <= MAX_TEXT, 'text_too_long', 400, `单条不超过 ${MAX_TEXT} 字符`);
+    const prior = await this.priorSend(agentId, input.idempotency_key);
+    if (prior) return prior;
     const loaded = await this.load(input.chat_id);
     const side = sideOf(loaded.state, agentId);
     if (!side) throw notFound();
@@ -1098,14 +1157,16 @@ export class ChatService {
     if (decision.kind === 'allow') {
       // Spend one window slot atomically; if another send took the last one, fall back to review.
       const spent = await this.sql(
-        'UPDATE chat_sides SET auto_left=auto_left-1 WHERE chat_id=? AND agent_id=? AND auto_left>0 AND auto_until>?',
+        `UPDATE chat_sides SET auto_left=auto_left-1 WHERE chat_id=? AND agent_id=? AND auto_left>0 AND auto_until>?
+          AND EXISTS(SELECT 1 FROM chats WHERE id=? AND status='open')`,
         input.chat_id,
         agentId,
         at,
+        input.chat_id,
       ).run();
       if (spent.meta.changes === 1) {
         const id = crypto.randomUUID();
-        await this.insertMessage({
+        const inserted = await this.insertMessage({
           id,
           chatId: input.chat_id,
           kind: 'agent',
@@ -1116,7 +1177,17 @@ export class ChatService {
           text: input.text,
           at,
         });
-        return { status: 'sent' as const, message_id: id };
+        if (inserted) return { status: 'sent' as const, message_id: id };
+        // The chat closed meanwhile, or a concurrent retry with this key won: refund the slot.
+        await this.sql(
+          'UPDATE chat_sides SET auto_left=auto_left+1 WHERE chat_id=? AND agent_id=? AND auto_until>?',
+          input.chat_id,
+          agentId,
+          at,
+        ).run();
+        const again = await this.priorSend(agentId, input.idempotency_key);
+        if (again) return again;
+        throw denied('chat_not_open');
       }
       decision = { kind: 'hold', reason: 'review' };
     }
@@ -1125,11 +1196,16 @@ export class ChatService {
       sealed = this.vault.seal(input.text, draftAad(input.chat_id, id));
     const owner = loaded.agents[agentId].owner_id;
     const statements = [
+      // chat_id resolves only while the chat is open and no message used this key yet; else
+      // it is NULL and NOT NULL rolls back the whole batch, notification and audit included.
       this.sql(
         `INSERT INTO drafts(id,chat_id,agent_id,reply_to,idempotency_key,ciphertext,key_version,hold_reason,dlp_rules,status,created_at,expires_at)
-          VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?)`,
+          VALUES(?,(SELECT id FROM chats WHERE id=? AND status='open'
+            AND NOT EXISTS(SELECT 1 FROM messages WHERE sender_agent_id=? AND idempotency_key=?)),?,?,?,?,?,?,?,'pending',?,?)`,
         id,
         input.chat_id,
+        agentId,
+        input.idempotency_key,
         agentId,
         replyTo,
         input.idempotency_key,
@@ -1157,12 +1233,12 @@ export class ChatService {
       await this.connection.batch(statements);
     } catch (error) {
       // A concurrent retry with the same key won the insert; return its result.
-      const again = await this.sql(
-        'SELECT * FROM drafts WHERE agent_id=? AND idempotency_key=?',
-        agentId,
-        input.idempotency_key,
-      ).first<DraftRow>();
-      if (again) return this.draftResult(again);
+      const again = await this.priorSend(agentId, input.idempotency_key);
+      if (again) return again;
+      const chat = await this.sql('SELECT status FROM chats WHERE id=?', input.chat_id).first<{
+        status: string;
+      }>();
+      if (chat?.status !== 'open') throw denied('chat_not_open');
       throw error;
     }
     return {
@@ -1181,6 +1257,11 @@ export class ChatService {
     return m ? replyTo : null;
   }
 
+  /**
+   * Inserts only while the chat is still open and nothing else used the idempotency key.
+   * closeStatements is one batch, so a close either lands first and this inserts nothing,
+   * or lands later and withholds the new row. Returns whether the row was inserted.
+   */
   private async insertMessage(m: {
     id: string;
     chatId: string;
@@ -1191,11 +1272,13 @@ export class ChatService {
     key: string | null;
     text: string;
     at: number;
-  }) {
+  }): Promise<boolean> {
     const sealed = this.vault.seal(m.text, messageAad(m.chatId, m.id));
-    await this.sql(
+    const r = await this.sql(
       `INSERT INTO messages(id,chat_id,sender_kind,sender_agent_id,sender_owner_id,reply_to,idempotency_key,ciphertext,key_version,sent_at,expires_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+        SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM chats WHERE id=? AND status='open')
+          AND NOT EXISTS(SELECT 1 FROM drafts WHERE agent_id=? AND idempotency_key=?)
+        ON CONFLICT DO NOTHING`,
       m.id,
       m.chatId,
       m.kind,
@@ -1207,7 +1290,11 @@ export class ChatService {
       sealed.keyVersion,
       m.at,
       m.at + MESSAGE_TTL,
+      m.chatId,
+      m.agentId,
+      m.key,
     ).run();
+    return r.meta.changes === 1;
   }
 
   /** Owners speak as themselves, without review. While paused it is stored and delivered later. */
@@ -1215,7 +1302,7 @@ export class ChatService {
     await this.ownerLoad(ownerId, chatId, 'owner_send');
     ensure(text.length <= MAX_TEXT, 'text_too_long', 400, `单条不超过 ${MAX_TEXT} 字符`);
     const id = crypto.randomUUID();
-    await this.insertMessage({
+    const inserted = await this.insertMessage({
       id,
       chatId,
       kind: 'owner',
@@ -1226,6 +1313,7 @@ export class ChatService {
       text,
       at: this.now(),
     });
+    if (!inserted) throw denied('chat_not_open');
     return { message_id: id };
   }
 
@@ -1310,52 +1398,73 @@ export class ChatService {
     return { ok: true };
   }
 
+  /**
+   * The sides a message is for: the other Agent for Agent messages; for owner messages the
+   * other owner's side, or both sides in a same-owner chat. Withdrawal, the owner's "taken"
+   * view and close-time withholding (withholdUndelivered) all use this rule, so they agree.
+   */
+  private recipients(m: MessageRow, loaded: Loaded): SideRow[] {
+    if (m.sender_kind === 'agent')
+      return loaded.sides.filter((s) => s.agent_id !== m.sender_agent_id);
+    return loaded.chat.same_owner
+      ? loaded.sides
+      : loaded.sides.filter((s) => s.owner_id !== m.sender_owner_id);
+  }
+  private sentByOwner(m: MessageRow, loaded: Loaded, ownerId: string): boolean {
+    return m.sender_kind === 'owner'
+      ? m.sender_owner_id === ownerId
+      : loaded.agents[m.sender_agent_id!]?.owner_id === ownerId;
+  }
+
   /** Withdraw my side's message before any recipient Agent has taken it. */
   async withdraw(ownerId: string, messageId: string) {
     const m = await this.sql('SELECT * FROM messages WHERE id=?', messageId).first<MessageRow>();
     if (!m) throw notFound();
     const loaded = await this.load(m.chat_id);
-    const mine =
-      m.sender_kind === 'owner'
-        ? m.sender_owner_id === ownerId
-        : loaded.agents[m.sender_agent_id!]?.owner_id === ownerId;
-    if (!mine) throw notFound();
-    const recipients = loaded.sides.filter((s) => s.agent_id !== m.sender_agent_id);
-    ensure(
-      !m.withheld_at && recipients.every((s) => s.delivered_seq < m.seq),
-      'already_taken',
-      409,
-      '对方 Agent 已取走，无法撤回',
-    );
+    if (!this.sentByOwner(m, loaded, ownerId)) throw notFound();
+    const recipients = this.recipients(m, loaded).map((s) => s.agent_id);
     const at = this.now();
-    await this.connection.batch([
-      this.sql(
-        'UPDATE messages SET withheld_at=?,withdrawn_at=? WHERE id=? AND withheld_at IS NULL',
-        at,
-        at,
-        messageId,
-      ),
-      audit(this.connection, 'message_withdrawn', messageId, { owner: ownerId }),
-    ]);
+    // Checked in the same statement as the update: a take that lands first wins.
+    const withheld = await this.sql(
+      `UPDATE messages SET withheld_at=?,withdrawn_at=? WHERE id=? AND withheld_at IS NULL AND NOT EXISTS(
+        SELECT 1 FROM chat_sides WHERE chat_id=messages.chat_id AND agent_id IN (${recipients.map(() => '?').join(',')})
+          AND delivered_seq>=messages.seq)`,
+      at,
+      at,
+      messageId,
+      ...recipients,
+    ).run();
+    ensure(withheld.meta.changes === 1, 'already_taken', 409, '接收方 Agent 已取走，无法撤回');
+    await audit(this.connection, 'message_withdrawn', messageId, { owner: ownerId }).run();
     return { ok: true };
   }
 
   /**
    * Takes new messages across all of an Agent's chats. Progress is advanced with
    * compare-and-set, so concurrent instances never receive the same batch (at-most-once).
+   * With `authVersion` (the token's), every take also requires that connection to still be
+   * current, so a long poll that outlives a reset or retirement takes nothing more.
    */
-  async inboxTake(agentId: string, limit = 50) {
-    const deadline = Date.now() + this.inboxWaitMs;
+  async inboxTake(agentId: string, limit = 50, authVersion?: number, waitMs = this.inboxWaitMs) {
+    const deadline = Date.now() + waitMs;
     while (true) {
-      const messages = await this.takeOnce(agentId, limit);
-      const results = await this.takeDraftResults(agentId);
+      if (authVersion !== undefined) {
+        const current = await this.sql(
+          `SELECT 1 FROM agents WHERE ${CONNECTED}`,
+          agentId,
+          authVersion,
+        ).first();
+        ensure(current, 'connection_revoked', 401, '连接已重置或撤销，请重新连接');
+      }
+      const messages = await this.takeOnce(agentId, limit, authVersion);
+      const results = await this.takeDraftResults(agentId, authVersion);
       if (messages.length || results.length || Date.now() >= deadline)
         return { messages, draft_results: results, untrusted_notice: UNTRUSTED_NOTICE };
       await sleep(Math.min(this.pollMs, Math.max(0, deadline - Date.now())));
     }
   }
 
-  private async takeOnce(agentId: string, limit: number) {
+  private async takeOnce(agentId: string, limit: number, authVersion?: number) {
     const sides = (
       await this.sql('SELECT chat_id FROM chat_sides WHERE agent_id=?', agentId).all<{
         chat_id: string;
@@ -1368,32 +1477,47 @@ export class ChatService {
       const loaded = await this.load(chat_id),
         side = loaded.sides.find((s) => s.agent_id === agentId)!;
       if (!canDeliver(loaded.state, { withheld_at: null, expires_at: at + 1 }, at)) continue;
-      const rows = (
-        await this.sql(
-          'SELECT * FROM messages WHERE chat_id=? AND seq>? ORDER BY seq LIMIT ?',
-          chat_id,
-          side.delivered_seq,
-          limit - out.length,
-        ).all<MessageRow>()
-      ).results;
-      if (!rows.length) continue;
-      const next = rows[rows.length - 1].seq;
+      const last = await this.sql(
+        'SELECT MAX(seq) AS seq FROM (SELECT seq FROM messages WHERE chat_id=? AND seq>? ORDER BY seq LIMIT ?)',
+        chat_id,
+        side.delivered_seq,
+        limit - out.length,
+      ).first<{ seq: number | null }>();
+      if (!last?.seq) continue;
+      // The compare-and-set alone decides what was taken. It repeats the liveness checks that
+      // canDeliver made above, because a close, block, retirement or pause may have landed
+      // since: those either commit first and this takes nothing, or later and see it taken.
       const taken = await this.sql(
-        'UPDATE chat_sides SET delivered_seq=? WHERE chat_id=? AND agent_id=? AND delivered_seq=?',
-        next,
+        `UPDATE chat_sides SET delivered_seq=? WHERE chat_id=? AND agent_id=? AND delivered_seq=?
+          AND EXISTS(SELECT 1 FROM chats WHERE id=? AND status='open')
+          AND NOT EXISTS(SELECT 1 FROM chat_sides p WHERE p.chat_id=? AND p.paused_at IS NOT NULL)
+          ${authVersion === undefined ? '' : `AND EXISTS(SELECT 1 FROM agents WHERE ${CONNECTED})`}`,
+        last.seq,
         chat_id,
         agentId,
         side.delivered_seq,
+        chat_id,
+        chat_id,
+        ...(authVersion === undefined ? [] : [agentId, authVersion]),
       ).run();
       if (taken.meta.changes !== 1) continue;
+      // Read the rows after taking them, so a withdrawal that committed first is honored.
+      const rows = (
+        await this.sql(
+          'SELECT * FROM messages WHERE chat_id=? AND seq>? AND seq<=? ORDER BY seq',
+          chat_id,
+          side.delivered_seq,
+          last.seq,
+        ).all<MessageRow>()
+      ).results;
       for (const m of rows)
         if (m.sender_agent_id !== agentId && canDeliver(loaded.state, m, at))
-          out.push(this.messageView(m, loaded));
+          out.push(this.messageView(m, loaded, agentId));
     }
     return out;
   }
 
-  private async takeDraftResults(agentId: string) {
+  private async takeDraftResults(agentId: string, authVersion?: number) {
     // Drafts nobody handled within 7 days expire, and the Agent learns that once.
     await this.sql(
       "UPDATE drafts SET status='expired',decided_at=? WHERE agent_id=? AND status='pending' AND expires_at<=?",
@@ -1410,9 +1534,11 @@ export class ChatService {
     const out = [];
     for (const d of rows) {
       const r = await this.sql(
-        'UPDATE drafts SET result_seen_at=? WHERE id=? AND result_seen_at IS NULL',
+        `UPDATE drafts SET result_seen_at=? WHERE id=? AND result_seen_at IS NULL
+          ${authVersion === undefined ? '' : `AND EXISTS(SELECT 1 FROM agents WHERE ${CONNECTED})`}`,
         this.now(),
         d.id,
+        ...(authVersion === undefined ? [] : [agentId, authVersion]),
       ).run();
       if (r.meta.changes === 1)
         out.push({
@@ -1424,18 +1550,24 @@ export class ChatService {
     return out;
   }
 
-  private messageView(m: MessageRow, loaded: Loaded) {
-    const sender =
-      m.sender_kind === 'agent'
-        ? { kind: 'agent' as const, label: loaded.agents[m.sender_agent_id!]?.label ?? 'Agent' }
-        : { kind: 'owner' as const, label: '主人' };
+  /** A message as the receiving Agent `agentId` sees it. */
+  private messageView(m: MessageRow, loaded: Loaded, agentId: string) {
+    const fromMyOwner =
+      m.sender_kind === 'owner' && m.sender_owner_id === loaded.agents[agentId]?.owner_id;
     return {
       chat_id: m.chat_id,
       seq: m.seq,
       id: m.id,
-      sender_kind: sender.kind,
+      sender_kind: m.sender_kind,
       sender_agent_id: m.sender_agent_id,
-      sender_label: sender.label,
+      sender_label:
+        m.sender_kind === 'agent'
+          ? (loaded.agents[m.sender_agent_id!]?.label ?? 'Agent')
+          : fromMyOwner
+            ? '你的主人'
+            : '对方主人',
+      // Who spoke, not what they may authorize: owner text is untrusted data too.
+      from_my_owner: fromMyOwner,
       text: this.decrypt(m),
       reply_to: m.reply_to,
       sent_at: m.sent_at,
@@ -1466,7 +1598,7 @@ export class ChatService {
       ).all<MessageRow>()
     ).results;
     return {
-      messages: rows.map((m) => this.messageView(m, loaded)),
+      messages: rows.map((m) => this.messageView(m, loaded, agentId)),
       untrusted_notice: UNTRUSTED_NOTICE,
     };
   }
@@ -1597,11 +1729,8 @@ export class ChatService {
       blocked: loaded.state.blocked,
       sides,
       messages: rows.map((m) => {
-        const recipients = loaded.sides.filter((s) => s.agent_id !== m.sender_agent_id);
-        const mine =
-          m.sender_kind === 'owner'
-            ? m.sender_owner_id === ownerId
-            : loaded.agents[m.sender_agent_id!]?.owner_id === ownerId;
+        const taken = this.recipients(m, loaded).some((s) => s.delivered_seq >= m.seq);
+        const mine = this.sentByOwner(m, loaded, ownerId);
         return {
           id: m.id,
           seq: m.seq,
@@ -1617,8 +1746,10 @@ export class ChatService {
           text: m.withdrawn_at && !mine ? null : this.decrypt(m),
           sent_at: m.sent_at,
           // "Taken" only means an Agent fetched it; the Hub cannot know it was read.
-          taken: recipients.every((s) => s.delivered_seq >= m.seq),
+          taken,
           withheld: !!m.withheld_at,
+          // Exactly when withdraw() would currently succeed.
+          can_withdraw: mine && !m.withheld_at && !taken,
         };
       }),
       drafts: drafts.map((d) => ({

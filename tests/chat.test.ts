@@ -1,10 +1,42 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { env } from './runtime';
 import { connectedAgent, friends, ownerCall, seedOwner, service } from './helpers';
-import { MESSAGE_TTL, DRAFT_TTL } from '../src/server/chat';
+import { MESSAGE_TTL, DRAFT_TTL, WINDOW_COUNT, type ChatService } from '../src/server/chat';
+import { Statement } from '../src/server/storage';
 
 const key = () => 'k-' + crypto.randomUUID();
 const text = (n: number) => `第 ${n} 条消息`;
+const linkToken = (invite: { url: string }) => new URL(invite.url).hash.slice(1);
+
+// Private ChatService steps, spied on to force one exact interleaving of concurrent requests.
+interface Steps {
+  load(chatId: string): Promise<unknown>;
+  validReply(chatId: string, replyTo?: string): Promise<string | null>;
+}
+const steps = (chats: ChatService) => chats as unknown as Steps;
+
+/** Runs `during` once, right before the next single statement starting with `prefix` runs. */
+function beforeStatement(prefix: string, during: () => Promise<unknown>) {
+  const run = Statement.prototype.run;
+  const spy = vi.spyOn(Statement.prototype, 'run').mockImplementation(async function (
+    this: Statement,
+  ) {
+    if (this.sql.startsWith(prefix)) {
+      spy.mockRestore();
+      await during();
+    }
+    return run.call(this);
+  });
+}
+
+/** Runs `during` once, right before the next batch commits. */
+function beforeBatch(during: () => Promise<unknown>) {
+  const batch = env.DB.batch.bind(env.DB);
+  vi.spyOn(env.DB, 'batch').mockImplementationOnce(async (statements) => {
+    await during();
+    return batch(statements);
+  });
+}
 
 describe('chat lifecycle scenarios', () => {
   it('1, 11: invite → start chat → Agent sends → owner reviews → delivery; rejection reported once', async () => {
@@ -470,5 +502,312 @@ describe('chat lifecycle scenarios', () => {
     expect((await ownerCall(eve, 'GET', `/api/chats/${f.chatId}`)).status).toBe(404);
     expect((await ownerCall(eve, 'POST', `/api/chats/${f.chatId}/pause`, {})).status).toBe(404);
     expect((await ownerCall(f.alice, 'GET', `/api/chats/${f.chatId}`)).status).toBe(200);
+  });
+});
+
+describe('concurrency and edge cases', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a single-use invite accepted or revoked concurrently writes nothing for the loser', async () => {
+    const s = service();
+    const alice = await seedOwner('Alice'),
+      bob = await seedOwner('Bob'),
+      carol = await seedOwner('Carol');
+    const a = await connectedAgent(s.chats, alice),
+      b = await connectedAgent(s.chats, bob, 'muse'),
+      c = await connectedAgent(s.chats, carol, 'duet');
+    // Bob's acceptance commits after Carol's checks passed but before her writes.
+    const link = linkToken(await s.chats.createInvite(alice.id, a.id));
+    beforeBatch(() => s.chats.acceptInvite(bob.id, link, b.id));
+    await expect(s.chats.acceptInvite(carol.id, link, c.id)).rejects.toMatchObject({
+      code: 'invite_unavailable',
+    });
+    const revoked = await s.chats.createInvite(alice.id, a.id);
+    beforeBatch(() => s.chats.revokeInvite(alice.id, revoked.id));
+    await expect(s.chats.acceptInvite(carol.id, linkToken(revoked), c.id)).rejects.toMatchObject({
+      code: 'invite_unavailable',
+    });
+    expect((await s.chats.contacts(alice.id)).map((x) => x.peer.id)).toEqual([bob.id]);
+    expect(await s.chats.contacts(carol.id)).toEqual([]);
+    expect((await s.chats.dashboard(carol.id)).chats).toEqual([]);
+  });
+
+  it('an invite accepted while the inviter blocks is refused and stays unused', async () => {
+    const f = await friends();
+    const invite = await f.chats.createInvite(f.alice.id, f.a.id);
+    beforeBatch(() => f.chats.block(f.alice.id, f.contactId));
+    await expect(f.chats.acceptInvite(f.bob.id, linkToken(invite), f.b.id)).rejects.toMatchObject({
+      code: 'blocked',
+    });
+    expect((await f.chats.invites(f.alice.id)).find((i) => i.id === invite.id)).toMatchObject({
+      consumed_at: null,
+    });
+  });
+
+  it('an invite accepted while the inviter removes the contact restores no stale exposure', async () => {
+    const f = await friends();
+    const a2 = await connectedAgent(f.chats, f.alice, 'duet');
+    const invite = await f.chats.createInvite(f.alice.id, a2.id);
+    beforeBatch(() => f.chats.removeContact(f.alice.id, f.contactId));
+    await expect(f.chats.acceptInvite(f.bob.id, linkToken(invite), f.b.id)).rejects.toMatchObject({
+      code: 'contact_changed',
+    });
+    const exposed = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM contact_agents WHERE contact_id=?',
+    )
+      .bind(f.contactId)
+      .first<{ n: number }>();
+    expect(exposed?.n).toBe(0);
+    expect((await f.chats.dashboard(f.bob.id)).chats.filter((c) => c.status === 'open')).toEqual(
+      [],
+    );
+    expect((await f.chats.invites(f.alice.id)).find((i) => i.id === invite.id)).toMatchObject({
+      consumed_at: null,
+    });
+    // Retrying re-adds the removed contact with only the Agents this invite exposes.
+    await f.chats.acceptInvite(f.bob.id, linkToken(invite), f.b.id);
+    expect((await f.chats.contacts(f.bob.id))[0].peer_agents.map((a) => a.id)).toEqual([a2.id]);
+  });
+
+  it('a block survives removal by either side and only the blocker can lift it', async () => {
+    const f = await friends();
+    await f.chats.block(f.bob.id, f.contactId);
+    await f.chats.removeContact(f.alice.id, f.contactId);
+    expect(await f.chats.contacts(f.alice.id)).toEqual([]);
+    expect(await f.chats.contacts(f.bob.id)).toMatchObject([
+      { id: f.contactId, removed: true, blocked_by_me: true, my_agents: [], peer_agents: [] },
+    ]);
+    const refused = await f.chats.createInvite(f.bob.id, f.b.id);
+    await expect(
+      f.chats.acceptInvite(f.alice.id, linkToken(refused), f.a.id),
+    ).rejects.toMatchObject({ code: 'blocked' });
+    await f.chats.unblock(f.bob.id, f.contactId);
+    expect(await f.chats.contacts(f.bob.id)).toEqual([]);
+    const again = await f.chats.createInvite(f.bob.id, f.b.id);
+    const accepted = await f.chats.acceptInvite(f.alice.id, linkToken(again), f.a.id);
+    expect(accepted.contact_id).toBe(f.contactId);
+    expect(await f.chats.contacts(f.bob.id)).toMatchObject([
+      { removed: false, blocked_by_me: false, blocked_by_peer: false },
+    ]);
+  });
+
+  it('history never replays withdrawn or withheld messages to the recipient Agent', async () => {
+    const f = await friends();
+    const secret = await f.chats.ownerSend(f.alice.id, f.chatId, '撤回的内容');
+    await f.chats.withdraw(f.alice.id, secret.message_id);
+    await f.chats.ownerSend(f.alice.id, f.chatId, '正常');
+    expect((await f.chats.inboxTake(f.b.id)).messages.map((m) => m.text)).toEqual(['正常']);
+    await f.chats.ownerSend(f.alice.id, f.chatId, '关闭时没取走');
+    await f.chats.closeChat(f.alice.id, f.chatId);
+    await f.chats.requestChat(f.alice.id, f.a.id, f.b.id);
+    await f.chats.approveChat(f.bob.id, f.chatId);
+    await f.chats.ownerSend(f.alice.id, f.chatId, '重开后');
+    expect((await f.chats.inboxTake(f.b.id)).messages.map((m) => m.text)).toEqual(['重开后']);
+    expect((await f.chats.history(f.b.id, f.chatId, 0)).messages.map((m) => m.text)).toEqual([
+      '正常',
+      '重开后',
+    ]);
+  });
+
+  it('a close that lands while hub_send runs wins: nothing is sent and no draft survives', async () => {
+    const f = await friends();
+    const closeDuringSend = (by: string) =>
+      vi.spyOn(steps(f.chats), 'validReply').mockImplementationOnce(async () => {
+        await f.chats.closeChat(by, f.chatId);
+        return null;
+      });
+    await f.chats.setWindow(f.alice.id, f.chatId, 60);
+    closeDuringSend(f.bob.id);
+    await expect(
+      f.chats.agentSend(f.a.id, {
+        chat_id: f.chatId,
+        text: '关闭后自动发出',
+        idempotency_key: key(),
+      }),
+    ).rejects.toMatchObject({ code: 'chat_not_open' });
+    await f.chats.requestChat(f.alice.id, f.a.id, f.b.id);
+    await f.chats.approveChat(f.bob.id, f.chatId);
+    expect((await f.chats.inboxTake(f.b.id)).messages).toHaveLength(0);
+    closeDuringSend(f.alice.id);
+    await expect(
+      f.chats.agentSend(f.b.id, {
+        chat_id: f.chatId,
+        text: '关闭后的草稿',
+        idempotency_key: key(),
+      }),
+    ).rejects.toMatchObject({ code: 'chat_not_open' });
+    expect(await f.chats.reviewQueue(f.bob.id)).toEqual([]);
+    expect((await f.chats.dashboard(f.bob.id)).notifications.some((n) => n.kind === 'review')).toBe(
+      false,
+    );
+  });
+
+  it('withdraw loses to a take that lands first; a take honors a withdrawal or block that lands first', async () => {
+    const f = await friends();
+    // The take lands after withdraw read the chat, before it decided.
+    const raced = await f.chats.ownerSend(f.alice.id, f.chatId, '竞态');
+    let got: string[] = [];
+    const load = steps(f.chats).load.bind(f.chats);
+    vi.spyOn(steps(f.chats), 'load').mockImplementationOnce(async (id) => {
+      const loaded = await load(id);
+      got = (await f.chats.inboxTake(f.b.id)).messages.map((m) => m.text);
+      return loaded;
+    });
+    await expect(f.chats.withdraw(f.alice.id, raced.message_id)).rejects.toMatchObject({
+      code: 'already_taken',
+    });
+    expect(got).toEqual(['竞态']);
+    expect((await f.chats.ownerChat(f.alice.id, f.chatId)).messages[0]).toMatchObject({
+      taken: true,
+      withheld: false,
+    });
+    const audits = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM audit_events WHERE event_type='message_withdrawn' AND entity_id=?",
+    )
+      .bind(raced.message_id)
+      .first<{ n: number }>();
+    expect(audits?.n).toBe(0);
+    // A withdrawal, then a block, commits between the take's reads and its compare-and-set.
+    const withdrawn = await f.chats.ownerSend(f.alice.id, f.chatId, '撤回了');
+    beforeStatement('UPDATE chat_sides SET delivered_seq', () =>
+      f.chats.withdraw(f.alice.id, withdrawn.message_id),
+    );
+    expect((await f.chats.inboxTake(f.b.id)).messages).toHaveLength(0);
+    await f.chats.ownerSend(f.alice.id, f.chatId, '拉黑前');
+    beforeStatement('UPDATE chat_sides SET delivered_seq', () =>
+      f.chats.block(f.alice.id, f.contactId),
+    );
+    expect((await f.chats.inboxTake(f.b.id)).messages).toHaveLength(0);
+    expect((await f.chats.ownerChat(f.alice.id, f.chatId)).messages.at(-1)).toMatchObject({
+      text: '拉黑前',
+      taken: false,
+      withheld: true,
+    });
+  });
+
+  it("an owner's own Agent taking their message does not block withdrawal; the peer's does", async () => {
+    const f = await friends();
+    const own = await f.chats.ownerSend(f.alice.id, f.chatId, '我的 Agent 先取走');
+    await f.chats.inboxTake(f.a.id);
+    expect((await f.chats.ownerChat(f.alice.id, f.chatId)).messages[0]).toMatchObject({
+      taken: false,
+      can_withdraw: true,
+    });
+    await f.chats.withdraw(f.alice.id, own.message_id);
+    const peer = await f.chats.ownerSend(f.alice.id, f.chatId, '对方先取走');
+    await f.chats.inboxTake(f.b.id);
+    const view = await f.chats.ownerChat(f.alice.id, f.chatId);
+    expect(view.messages.find((m) => m.id === peer.message_id)).toMatchObject({
+      taken: true,
+      can_withdraw: false,
+    });
+    await expect(f.chats.withdraw(f.alice.id, peer.message_id)).rejects.toMatchObject({
+      code: 'already_taken',
+    });
+    expect((await f.chats.ownerChat(f.bob.id, f.chatId)).messages.some((m) => m.can_withdraw)).toBe(
+      false,
+    );
+  });
+
+  it('closing ends auto windows, so an approved reopen starts in review mode', async () => {
+    const f = await friends();
+    await f.chats.setWindow(f.alice.id, f.chatId, 1440);
+    await f.chats.closeChat(f.alice.id, f.chatId);
+    await f.chats.requestChat(f.bob.id, f.b.id, f.a.id);
+    await f.chats.approveChat(f.alice.id, f.chatId);
+    expect(
+      (
+        await f.chats.agentSend(f.a.id, {
+          chat_id: f.chatId,
+          text: '重开后',
+          idempotency_key: key(),
+        })
+      ).status,
+    ).toBe('pending_review');
+  });
+
+  it('concurrent retries with one key give one result and spend at most one window slot', async () => {
+    const f = await friends();
+    await f.chats.setWindow(f.alice.id, f.chatId, 10);
+    const retry = (k: string) => () =>
+      f.chats.agentSend(f.a.id, { chat_id: f.chatId, text: '重试', idempotency_key: k });
+    const first = retry(key());
+    const [one, two] = await Promise.all([first(), first()]);
+    expect(one.status).toBe('sent');
+    expect(two).toEqual(one);
+    expect((await f.chats.agentChats(f.a.id)).chats[0].auto_left).toBe(WINDOW_COUNT - 1);
+    // With one slot left the loser falls back to review; the key still has one outcome.
+    await f.chats.setWindow(f.alice.id, f.chatId, 10, undefined, 1);
+    const k = key(),
+      second = retry(k);
+    const [three, four] = await Promise.all([second(), second()]);
+    expect(four).toEqual(three);
+    const rows = await env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM messages WHERE idempotency_key=?) + (SELECT COUNT(*) FROM drafts WHERE idempotency_key=?) AS n`,
+    )
+      .bind(k, k)
+      .first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+  });
+
+  it('opening an auto window reminds the other owner, who still decides for their side', async () => {
+    const f = await friends();
+    await f.chats.setWindow(f.alice.id, f.chatId, 10);
+    expect((await f.chats.dashboard(f.bob.id)).notifications).toMatchObject([
+      { kind: 'window_opened', entity_id: f.chatId },
+    ]);
+    expect(
+      (await f.chats.dashboard(f.alice.id)).notifications.some((n) => n.kind === 'window_opened'),
+    ).toBe(false);
+    expect(
+      (await f.chats.ownerChat(f.bob.id, f.chatId)).sides.find((s) => s.mine)!.window_open,
+    ).toBe(false);
+  });
+
+  it('a long poll that outlives a connection reset takes nothing more', async () => {
+    const f = await friends();
+    const old = (await f.chats.agent(f.b.id)).auth_version;
+    const draft = await f.chats.agentSend(f.b.id, {
+      chat_id: f.chatId,
+      text: '会被拒',
+      idempotency_key: key(),
+    });
+    await f.chats.rejectDraft(f.bob.id, draft.draft_id!);
+    await f.chats.ownerSend(f.alice.id, f.chatId, '重置前');
+    // The reset lands after the poll's own check, just before it takes anything.
+    beforeStatement('UPDATE chat_sides SET delivered_seq', () =>
+      f.chats.resetConnection(f.bob.id, f.b.id),
+    );
+    expect(await f.chats.inboxTake(f.b.id, 50, old)).toMatchObject({
+      messages: [],
+      draft_results: [],
+    });
+    await expect(f.chats.inboxTake(f.b.id, 50, old)).rejects.toMatchObject({
+      code: 'connection_revoked',
+      status: 401,
+    });
+    const fresh = await f.chats.onAuthorized(f.bob.id, f.b.id, `client-${f.b.id}`);
+    const got = await f.chats.inboxTake(f.b.id, 50, fresh.auth_version);
+    expect(got.messages.map((m) => m.text)).toEqual(['重置前']);
+    expect(got.draft_results).toMatchObject([{ status: 'rejected' }]);
+  });
+
+  it("Agents can tell their own owner's Hub messages from the other owner's", async () => {
+    const f = await friends();
+    await f.chats.ownerSend(f.bob.id, f.chatId, 'Bob 的留言');
+    expect((await f.chats.inboxTake(f.a.id)).messages[0]).toMatchObject({
+      sender_kind: 'owner',
+      sender_label: '对方主人',
+      from_my_owner: false,
+      untrusted: true,
+    });
+    expect((await f.chats.inboxTake(f.b.id)).messages[0]).toMatchObject({
+      sender_label: '你的主人',
+      from_my_owner: true,
+    });
+    expect((await f.chats.history(f.a.id, f.chatId, 0)).messages[0]).toMatchObject({
+      sender_label: '对方主人',
+      from_my_owner: false,
+    });
   });
 });

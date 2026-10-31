@@ -55,3 +55,16 @@ export function safeReturnPath(value: string | null): string {
     return '/';
   }
 }
+/** Re-authentication must open login, never a form that makes a new account. */
+export function initialAuthMode(
+  pathname: string,
+  search: string,
+  signedIn: boolean,
+): 'login' | 'register' {
+  const params = new URLSearchParams(search);
+  return signedIn ||
+    params.get('reauth') === '1' ||
+    (pathname === '/login' && !params.get('returnTo'))
+    ? 'login'
+    : 'register';
+}

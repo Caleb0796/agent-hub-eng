@@ -79,11 +79,14 @@ oauthRoutes.get('/authorize', async (c) => {
   try {
     user = await owner(c, { fresh: true });
   } catch (error) {
-    // No account yet: sign up (or log in) and come straight back here.
-    if (error instanceof HubError && error.status === 401)
+    // No account yet: sign up (or log in) and come straight back here. A signed-in owner
+    // whose login is stale only confirms the passkey again (reauth=1 opens login, not sign-up).
+    if (error instanceof HubError && error.status === 401) {
+      const reauth = error.code === 'reauthentication_required' ? 'reauth=1&' : '';
       return c.redirect(
-        `/login?returnTo=${encodeURIComponent(new URL(c.req.url).pathname + new URL(c.req.url).search)}`,
+        `/login?${reauth}returnTo=${encodeURIComponent(new URL(c.req.url).pathname + new URL(c.req.url).search)}`,
       );
+    }
     throw error;
   }
   const platform = clientPlatform(parsed.redirectUri),
@@ -170,17 +173,30 @@ oauthRoutes.post('/authorize', async (c) => {
       : await service.ownAgent(user.id, existing);
   ensure(agent.platform === declared, 'platform_mismatch', 400, '连接平台不匹配');
   const connected = await service.onAuthorized(user.id, agent.id, approved.request.clientId);
-  const { redirectTo } = await oauth.completeAuthorization({
-    request: approved.request,
-    userId: agent.id,
-    metadata: { agent_id: agent.id, platform: agent.platform },
-    scope: granted,
-    props: {
-      ownerId: user.id,
-      agentId: agent.id,
-      authVersion: connected.auth_version,
-    } satisfies AgentTokenProps,
-  });
+  // completeAuthorization looks the client up again (a fresh CIMD fetch). Any failure here
+  // must be a 5xx so the runtime rolls back the Agent changes and the consumed consent above,
+  // leaving nothing half-done for the owner's retry.
+  const { redirectTo } = await oauth
+    .completeAuthorization({
+      request: approved.request,
+      userId: agent.id,
+      metadata: { agent_id: agent.id, platform: agent.platform },
+      scope: granted,
+      props: {
+        ownerId: user.id,
+        agentId: agent.id,
+        authVersion: connected.auth_version,
+      } satisfies AgentTokenProps,
+    })
+    .catch((error: unknown) => {
+      console.warn(
+        JSON.stringify({
+          event: 'authorization_incomplete',
+          error_type: error instanceof Error ? error.name : 'unknown',
+        }),
+      );
+      throw new HubError('authorization_incomplete', 503, '暂时无法完成授权，请稍后重试');
+    });
   return consentReply(c.req.header('Accept'), redirectTo, approved.headers);
 });
 
