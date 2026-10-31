@@ -92,6 +92,15 @@ describe('Vercel and Turso runtime boundaries', () => {
       await expect(metadataFetch(url)).rejects.toThrow(/not approved/);
   });
 
+  it('accepts the scheduled cleanup on a deployment host, and only that path', async () => {
+    const deployment = 'https://agent-hub-abc123-team.vercel.app';
+    const authorized = { headers: { Authorization: 'Bearer test-cron-secret' } };
+    expect((await server.fetch(`${deployment}/api/cron/cleanup`, authorized)).status).toBe(200);
+    expect((await server.fetch(`${deployment}/api/cron/cleanup`)).status).toBe(401);
+    expect((await server.fetch(`${deployment}/healthz`, authorized)).status).toBe(421);
+    expect((await server.fetch(`${deployment}/api/me`, authorized)).status).toBe(421);
+  });
+
   it('requires a cron credential and rejects oversized OAuth bodies before storage work', async () => {
     expect((await server.fetch('http://localhost:8789/api/cron/cleanup')).status).toBe(401);
     expect(

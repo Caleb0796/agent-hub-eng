@@ -8,7 +8,7 @@ import {
   db,
   HubError,
   nowSeconds,
-  origin,
+  wrongOrigin,
   rateLimit,
   type HubBindings,
 } from './common';
@@ -113,7 +113,7 @@ export function headers(response: Response): Response {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      if (new URL(request.url).origin !== origin(env).origin)
+      if (wrongOrigin(request, env))
         return headers(Response.json({ error: 'wrong_origin' }, { status: 421 }));
       const bounded = await boundedRequest(request);
       if (new URL(request.url).pathname === '/oauth/register')
