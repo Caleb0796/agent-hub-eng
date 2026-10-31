@@ -9,7 +9,7 @@ import { Browser, authenticator } from './support/passkey-device.ts';
 import { base64url, randomToken } from '../src/shared/crypto.ts';
 
 // Two independent owners, three platform identities, real passkeys (synthetic authenticators),
-// real OAuth (DCR + PKCE) and real HTTP: invite → chat → review → auto window → pause → reset.
+// real OAuth (DCR + PKCE) and real HTTP: invite → chat → direct send → review setting → pause → reset.
 const base = 'http://localhost:8789',
   resource = `${base}/mcp`,
   callback = 'http://localhost:45678/callback';
@@ -191,34 +191,38 @@ try {
       idempotency_key: 'e2e-first-1',
     })
   ).structuredContent;
-  assert.equal(first.status, 'pending_review');
-  assert.equal((await tool(muse.token, 'hub_inbox')).structuredContent.messages.length, 0);
-  await post(alice, `/api/drafts/${first.draft_id}/approve`);
+  assert.equal(first.status, 'sent');
   const delivered = (await tool(muse.token, 'hub_inbox')).structuredContent.messages;
   assert.deepEqual(
     delivered.map((m) => m.text),
     ['你好，Muse'],
   );
-  steps.push('Agent send held for owner review, then delivered once');
+  steps.push('Agent send delivered directly, once');
 
-  await json(await alice.browser.post(`/api/chats/${chatId}/window`, { minutes: 10 }));
-  const auto = (
+  await json(await bob.browser.post(`/api/chats/${chatId}/review`, { on: true }));
+  const held = (
+    await tool(muse.token, 'hub_send', {
+      chat_id: chatId,
+      text: '先给主人看',
+      idempotency_key: 'e2e-review-1',
+    })
+  ).structuredContent;
+  assert.equal(held.status, 'pending_review');
+  await post(bob, `/api/drafts/${held.draft_id}/approve`);
+  assert.deepEqual(
+    (await tool(dot.token, 'hub_inbox')).structuredContent.messages.map((m) => m.text),
+    ['先给主人看'],
+  );
+  const direct = (
     await tool(dot.token, 'hub_send', {
       chat_id: chatId,
-      text: '自动发送',
+      text: '我这边还是直发',
       idempotency_key: 'e2e-auto-1',
     })
   ).structuredContent;
-  assert.equal(auto.status, 'sent');
-  const reply = (
-    await tool(muse.token, 'hub_send', {
-      chat_id: chatId,
-      text: '收到',
-      idempotency_key: 'e2e-reply-1',
-    })
-  ).structuredContent;
-  assert.equal(reply.status, 'pending_review', "Bob's side stays in review");
-  steps.push('auto window applies to its own side only');
+  assert.equal(direct.status, 'sent');
+  await json(await bob.browser.post(`/api/chats/${chatId}/review`, { on: false }));
+  steps.push('review setting applies to its own side only');
 
   await post(bob, `/api/chats/${chatId}/pause`);
   const paused = await tool(dot.token, 'hub_send', {

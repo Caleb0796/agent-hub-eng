@@ -77,25 +77,23 @@ describe('Agent MCP surface', () => {
     },
   );
 
-  it('chats, sends for review, delivers and replays through the tools', async () => {
+  it('chats, sends, delivers and replays through the tools', async () => {
     const f = await friends();
     const alice = client({ ownerId: f.alice.id, agentId: f.a.id, authVersion: f.a.auth_version });
     const bob = client({ ownerId: f.bob.id, agentId: f.b.id, authVersion: f.b.auth_version });
     const chats = (await tool(alice, 'hub_chats')).structuredContent;
     expect(chats.chats[0]).toMatchObject({
       chat_id: f.chatId,
-      send_mode: 'review',
+      send_mode: 'direct',
       can_send: true,
     });
     expect(chats.review_url).toBe('http://localhost:8789/review');
     const args = { chat_id: f.chatId, text: '你好 Bob', idempotency_key: 'first-message-1' };
     const sent = (await tool(alice, 'hub_send', args)).structuredContent;
-    expect(sent.status).toBe('pending_review');
+    expect(sent.status).toBe('sent');
     expect((await tool(alice, 'hub_send', args)).structuredContent).toEqual(sent);
-    expect((await tool(alice, 'hub_chats')).structuredContent.owner_pending).toBe(1);
-    await f.chats.approveDraft(f.alice.id, sent.draft_id);
     const inbox = (await tool(bob, 'hub_inbox')).structuredContent;
-    expect(inbox.messages[0]).toMatchObject({ text: '你好 Bob', untrusted: true });
+    expect(inbox.messages[0]).toMatchObject({ text: '你好 Bob', untrusted: true, mentions_me: false });
     expect(inbox.untrusted_notice).toContain('untrusted');
     expect((await tool(bob, 'hub_inbox')).structuredContent.messages).toHaveLength(0);
     const history = (await tool(bob, 'hub_inbox', { chat_id: f.chatId, after_seq: 0 }))

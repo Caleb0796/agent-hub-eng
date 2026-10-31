@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { canAgentSend, canDeliver, canOwnerAct, type ChatState } from '../src/server/policy';
+import {
+  AGENT_RUN_LIMIT,
+  canAgentSend,
+  canDeliver,
+  canOwnerAct,
+  type ChatState,
+} from '../src/server/policy';
 import { Vault, messageAad } from '../src/server/vault';
 import { scan } from '../src/server/dlp';
+import { findMentions } from '../src/shared/mentions';
 import { TEST_MESSAGE_KEY } from './runtime';
 
 const now = 1_000_000;
@@ -20,58 +27,59 @@ function chat(
         agent_id: 'A',
         owner_id: 'alice',
         paused_at: null,
-        auto_until: null,
-        auto_left: 0,
+        review_required: 0,
         ...sides[0],
       },
       {
         agent_id: 'B',
         owner_id: 'bob',
         paused_at: null,
-        auto_until: null,
-        auto_left: 0,
+        review_required: 0,
         ...sides[1],
       },
     ],
     ...overrides,
   };
 }
-const send = (c: ChatState, extra: { dlpHits?: string[]; pendingDrafts?: number } = {}) =>
+type SendExtra = { dlpHits?: string[]; pendingDrafts?: number; recentAgentRun?: number };
+const send = (c: ChatState, extra: SendExtra = {}) =>
   canAgentSend(c, 'A', {
-    now,
     dlpHits: extra.dlpHits ?? [],
     pendingDrafts: extra.pendingDrafts ?? 0,
+    recentAgentRun: extra.recentAgentRun ?? 0,
   });
-const window = { auto_until: now + 600, auto_left: 3 };
+const review = { review_required: 1 };
 
 describe('permission matrix', () => {
   it.each([
-    ['open chat, no window → review', chat(), {}, { kind: 'hold', reason: 'review' }],
-    ['window with slots → allow', chat({}, [window, {}]), {}, { kind: 'allow' }],
+    ['open chat → sends directly', chat(), {}, { kind: 'allow' }],
     [
-      'window used up → review',
-      chat({}, [{ auto_until: now + 600, auto_left: 0 }, {}]),
+      'owner asked to review first → review',
+      chat({}, [review, {}]),
       {},
       { kind: 'hold', reason: 'review' },
     ],
+    ['the other owner asking for review → still direct', chat({}, [{}, review]), {}, { kind: 'allow' }],
+    ['credential-like text → dlp hold', chat(), { dlpHits: ['x'] }, { kind: 'hold', reason: 'dlp' }],
     [
-      'window expired → review',
-      chat({}, [{ auto_until: now - 1, auto_left: 3 }, {}]),
-      {},
-      { kind: 'hold', reason: 'review' },
-    ],
-    [
-      'DLP inside window → dlp hold',
-      chat({}, [window, {}]),
+      'credential-like text with review on → dlp hold',
+      chat({}, [review, {}]),
       { dlpHits: ['x'] },
       { kind: 'hold', reason: 'dlp' },
     ],
     [
-      'queue full → deny',
-      chat(),
+      'review queue full → deny',
+      chat({}, [review, {}]),
       { pendingDrafts: 20 },
       { kind: 'deny', code: 'review_queue_full' },
     ],
+    [
+      'long unattended Agent run → deny',
+      chat(),
+      { recentAgentRun: AGENT_RUN_LIMIT },
+      { kind: 'deny', code: 'agent_run_limit' },
+    ],
+    ['just under the run limit → direct', chat(), { recentAgentRun: AGENT_RUN_LIMIT - 1 }, { kind: 'allow' }],
     [
       'peer side paused → deny',
       chat({}, [{}, { paused_at: now }]),
@@ -94,13 +102,11 @@ describe('permission matrix', () => {
       { kind: 'deny', code: 'peer_retired' },
     ],
   ] as const)('Agent send: %s', (_name, state, extra, expected) => {
-    expect(
-      send(state as ChatState, extra as { dlpHits?: string[]; pendingDrafts?: number }),
-    ).toEqual(expected);
+    expect(send(state as ChatState, extra as SendExtra)).toEqual(expected);
   });
 
   it('an Agent outside the chat is not found', () => {
-    expect(canAgentSend(chat(), 'C', { now, dlpHits: [], pendingDrafts: 0 })).toEqual({
+    expect(canAgentSend(chat(), 'C', { dlpHits: [], pendingDrafts: 0, recentAgentRun: 0 })).toEqual({
       kind: 'deny',
       code: 'not_found',
     });
@@ -138,12 +144,12 @@ describe('permission matrix', () => {
     expect(result).toEqual(code ? { kind: 'deny', code } : { kind: 'allow' });
   });
 
-  it('owners can only set windows on their own side', () => {
-    expect(canOwnerAct(chat(), 'bob', 'set_window', 'A')).toEqual({
+  it('owners can only change the review setting on their own side', () => {
+    expect(canOwnerAct(chat(), 'bob', 'set_review', 'A')).toEqual({
       kind: 'deny',
       code: 'not_found',
     });
-    expect(canOwnerAct(chat(), 'alice', 'set_window', 'A')).toEqual({ kind: 'allow' });
+    expect(canOwnerAct(chat(), 'alice', 'set_review', 'A')).toEqual({ kind: 'allow' });
   });
 
   it('delivery rechecks live permission, withholding and expiry', () => {
@@ -192,5 +198,29 @@ describe('vault and DLP', () => {
     ['{"aws_secret_access_key": "' + 'A'.repeat(40) + '"}', ['AWS secret key']],
   ])('flags env-style, JSON and lowercase credentials: %s', (text, expected) => {
     expect(scan(text)).toEqual(expected);
+  });
+});
+
+describe('mentions', () => {
+  const names = ['caleb', 'caleb的 Duet', 'Bob', '小明'];
+  const found = (text: string) => findMentions(text, names).map((m) => m.name);
+
+  it('prefers the longest name, so a label starting with a shorter name wins', () => {
+    expect(found('@caleb的 Duet 帮我看看')).toEqual(['caleb的 Duet']);
+    expect(found('@caleb 你好')).toEqual(['caleb']);
+  });
+  it('matches without a following space in Chinese, and ignores case', () => {
+    expect(found('@小明你好')).toEqual(['小明']);
+    expect(found('hi @bob!')).toEqual(['Bob']);
+  });
+  it('does not match inside a longer word or an email address', () => {
+    expect(found('@Bobby 在吗')).toEqual([]);
+    expect(found('写信到 bob@caleb.com')).toEqual([]);
+  });
+  it('reports where each mention is, for highlighting', () => {
+    expect(findMentions('嗨 @Bob 和 @小明', names)).toEqual([
+      { name: 'Bob', start: 2, end: 6 },
+      { name: '小明', start: 9, end: 12 },
+    ]);
   });
 });

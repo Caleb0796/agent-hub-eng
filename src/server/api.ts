@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { displayNameSchema, idSchema, textSchema, windowMinutes } from '../shared/protocol';
+import { displayNameSchema, idSchema, textSchema } from '../shared/protocol';
 import { owner, publicOwner, rateLimit, type HubBindings, type HubContext } from './common';
 import { chatService } from './services';
 
@@ -113,28 +113,13 @@ router.post('/chats/:id/resume', async (c) => {
   const u = await write(c);
   return c.json(await chats(c).resume(u.id, id(c), (await body(c, sideInput)).agentId));
 });
-router.post('/chats/:id/window', async (c) => {
-  const u = await fresh(c);
+router.post('/chats/:id/review', async (c) => {
+  const u = await write(c);
   const input = await body(
     c,
-    z
-      .object({
-        agentId: idSchema.optional(),
-        minutes: z.union(
-          windowMinutes.map((m) => z.literal(m)) as [
-            z.ZodLiteral<10>,
-            z.ZodLiteral<60>,
-            z.ZodLiteral<1440>,
-          ],
-        ),
-      })
-      .strict(),
+    z.object({ agentId: idSchema.optional(), on: z.boolean() }).strict(),
   );
-  return c.json(await chats(c).setWindow(u.id, id(c), input.minutes, input.agentId));
-});
-router.post('/chats/:id/window/close', async (c) => {
-  const u = await write(c);
-  return c.json(await chats(c).closeWindow(u.id, id(c), (await body(c, sideInput)).agentId));
+  return c.json(await chats(c).setReview(u.id, id(c), input.on, input.agentId));
 });
 router.post('/chats/:id/clear', async (c) =>
   c.json(await chats(c).clearView((await write(c)).id, id(c))),

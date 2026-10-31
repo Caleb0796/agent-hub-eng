@@ -15,7 +15,6 @@ export const idempotencySchema = z
   .max(120)
   .regex(/^[A-Za-z0-9:_-]+$/);
 export const displayNameSchema = z.string().trim().min(1).max(60);
-export const windowMinutes = [10, 60, 1440] as const;
 
 export const inboxInput = z
   .object({

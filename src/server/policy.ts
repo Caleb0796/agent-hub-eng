@@ -12,18 +12,22 @@ export type DenyCode =
   | 'peer_retired'
   | 'agent_retired'
   | 'review_queue_full'
+  | 'agent_run_limit'
   | 'not_receiver'
   | 'not_paused_by_you'
   | 'already_closed';
 
 export const REVIEW_QUEUE_LIMIT = 20;
+// Agent messages in a row, within AGENT_RUN_SECONDS, before Agents must wait for an owner to speak.
+// Two autonomous Agents can answer each other forever; this stops them without asking for approval.
+export const AGENT_RUN_LIMIT = 40;
+export const AGENT_RUN_SECONDS = 3600;
 
 export interface SideState {
   agent_id: string;
   owner_id: string;
   paused_at: number | null;
-  auto_until: number | null;
-  auto_left: number;
+  review_required: number;
 }
 export interface ChatState {
   status: 'pending' | 'open' | 'closed';
@@ -43,9 +47,6 @@ export function sideOf(chat: ChatState, agentId: string): SideState | undefined 
 export function ownsSide(chat: ChatState, ownerId: string): boolean {
   return chat.sides.some((s) => s.owner_id === ownerId);
 }
-export function windowOpen(side: SideState, now: number): boolean {
-  return !!side.auto_until && side.auto_until > now && side.auto_left > 0;
-}
 
 // Shared by send-time and delivery-time checks (both are required).
 function liveChat(chat: ChatState, agentId?: string): Decision {
@@ -58,18 +59,22 @@ function liveChat(chat: ChatState, agentId?: string): Decision {
   return allow;
 }
 
+/**
+ * Agents act for their owners, so sends go out directly. Only three things stop one: the owner
+ * asked to see this chat's sends first, the text looks like a credential, or two Agents have been
+ * talking alone for too long. Message text never changes any of this.
+ */
 export function canAgentSend(
   chat: ChatState,
   agentId: string,
-  input: { now: number; dlpHits: string[]; pendingDrafts: number },
+  input: { dlpHits: string[]; pendingDrafts: number; recentAgentRun: number },
 ): Decision {
   const side = sideOf(chat, agentId);
   if (!side) return deny('not_found');
   const live = liveChat(chat, agentId);
   if (live.kind !== 'allow') return live;
-  // DLP holds apply even inside an auto window.
-  const needsHold = input.dlpHits.length > 0 || !windowOpen(side, input.now);
-  if (!needsHold) return allow;
+  if (input.recentAgentRun >= AGENT_RUN_LIMIT) return deny('agent_run_limit');
+  if (!input.dlpHits.length && !side.review_required) return allow;
   if (input.pendingDrafts >= REVIEW_QUEUE_LIMIT) return deny('review_queue_full');
   return { kind: 'hold', reason: input.dlpHits.length ? 'dlp' : 'review' };
 }
@@ -90,7 +95,7 @@ export type OwnerAction =
   | 'close'
   | 'pause'
   | 'resume'
-  | 'set_window'
+  | 'set_review'
   | 'clear';
 
 // `agentId` names the side an action targets (the owner's own Agent in this chat).
@@ -121,7 +126,7 @@ export function canOwnerAct(
       return chat.status === 'open' && mine ? allow : deny('chat_not_open');
     case 'resume':
       return mine?.paused_at ? allow : deny('not_paused_by_you');
-    case 'set_window':
+    case 'set_review':
       if (!mine) return deny('not_found');
       return chat.status === 'open' ? allow : deny('chat_not_open');
   }
