@@ -59,6 +59,15 @@ export function origin(env: Env): URL {
   return value;
 }
 
+/**
+ * Everything is bound to the fixed origin except the cleanup: Vercel calls crons on the
+ * deployment's own URL, and that route needs only its secret, not cookies, passkeys or OAuth.
+ */
+export function wrongOrigin(request: Request, env: Env): boolean {
+  const url = new URL(request.url);
+  return url.origin !== origin(env).origin && url.pathname !== '/api/cron/cleanup';
+}
+
 export function requireBrowserOrigin(c: HubContext): void {
   ensure(
     c.req.header('Origin') === origin(c.env).origin,

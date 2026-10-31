@@ -1,6 +1,6 @@
 import type { Client } from '@libsql/client';
 import handler, { cleanup, errorResponse, headers } from './index';
-import { boundedRequest, origin } from './common';
+import { boundedRequest, wrongOrigin } from './common';
 import { Connection, OAuthStore } from './storage';
 import './env';
 
@@ -44,7 +44,7 @@ export function createRuntime(
     } as unknown as ExecutionContext;
     // Do not hold the database write lock while receiving an untrusted body.
     try {
-      if (new URL(request.url).origin !== origin(env).origin)
+      if (wrongOrigin(request, env))
         return headers(Response.json({ error: 'wrong_origin' }, { status: 421 }));
       request = await boundedRequest(request);
     } catch (error) {
