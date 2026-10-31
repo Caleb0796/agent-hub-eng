@@ -39,7 +39,8 @@ export function museClient(options: {
   model: string;
   fetch?: typeof fetch;
 }): MuseClient {
-  const send = options.fetch ?? fetch;
+  // globalThis, because the bundle replaces bare `fetch` with the OAuth metadata client.
+  const send = options.fetch ?? globalThis.fetch;
   return {
     async complete(system, user) {
       const response = await send(`${options.base}/chat/completions`, {

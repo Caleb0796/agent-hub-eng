@@ -8,7 +8,8 @@ import { connectedAgent, seedOwner, service } from './helpers';
 describe('credential scan', () => {
   it.each([
     ['AWS key', 'AKIAABCDEFGHIJKLMNOP'],
-    ['private key', '-----BEGIN RSA PRIVATE KEY-----'],
+    // Split so the secret scan does not take the fixture for a real key.
+    ['private key', `-----BEGIN RSA ${'PRIVATE'} KEY-----`],
     ['English assignment', 'password: correct-horse-9'],
     ['env line', 'DB_PASSWORD=correct-horse-9'],
     ['Chinese password', '我的密码是 hunter2abc'],

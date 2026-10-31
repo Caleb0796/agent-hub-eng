@@ -73,6 +73,26 @@ try {
     200,
     'a generated recovery link must open passkey registration',
   );
+  // The bundle replaces bare `fetch` with the OAuth metadata client, which refuses everything but
+  // approved GETs, so only the built output shows whether the model can actually be reached.
+  const model = createServer((request, response) => {
+    request.resume();
+    request.on('end', () =>
+      response.end(JSON.stringify({ choices: [{ message: { content: `${request.method} ok` } }] })),
+    );
+  });
+  await new Promise((resolve) => model.listen(0, '127.0.0.1', resolve));
+  process.env.MUSE_API_KEY = 'test-only';
+  process.env.MUSE_API_BASE = `http://127.0.0.1:${model.address().port}/v1`;
+  try {
+    const { runtimeFromEnvironment } = await import('../.output/host.mjs');
+    const { env } = runtimeFromEnvironment();
+    assert.equal(await env.MUSE.complete('system', 'user'), 'POST ok');
+  } finally {
+    delete process.env.MUSE_API_KEY;
+    delete process.env.MUSE_API_BASE;
+    await new Promise((resolve) => model.close(resolve));
+  }
   const report = {
     result: 'passed',
     checked_at: new Date().toISOString(),
@@ -83,6 +103,7 @@ try {
     signup_closed_switch: true,
     discovery_v2: true,
     recovery_link: true,
+    model_reachable_from_bundle: true,
     cron_authentication: true,
     live_vercel_deployment: false,
   };
