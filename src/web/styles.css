@@ -1480,6 +1480,9 @@ details.section[open] > summary {
   color: var(--muted);
   cursor: pointer;
 }
+.tasks .agent-listen {
+  padding: 2px 0 4px;
+}
 .demo {
   min-height: 100dvh;
   padding: 28px clamp(16px, 4vw, 48px);

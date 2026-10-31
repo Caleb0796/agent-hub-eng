@@ -105,6 +105,53 @@ describe('Agent MCP surface', () => {
     expect(history.messages).toHaveLength(1);
   });
 
+  it('lets an owner talk to the other Agent from their own platform', async () => {
+    const f = await friends();
+    const alice = client({ ownerId: f.alice.id, agentId: f.a.id, authVersion: f.a.auth_version });
+    const bob = client({ ownerId: f.bob.id, agentId: f.b.id, authVersion: f.b.auth_version });
+    // The Agent has to learn the flow from the server, on both protocol lanes.
+    const hubSend = (await alice('tools/list')).body.result.tools.find(
+      (t: { name: string }) => t.name === 'hub_send',
+    );
+    expect(hubSend.description).toContain('on my own platform');
+    expect((await alice('initialize')).body.result.instructions).toContain('on your own platform');
+
+    await tool(bob, 'hub_whoami');
+    const listed = (await tool(alice, 'hub_chats')).structuredContent;
+    expect(listed.invite_url).toBe('http://localhost:8789/contacts?invite=1');
+    const peer = listed.chats[0].peer.agent_label;
+    expect(listed.chats[0].peer).toMatchObject({ answers_automatically: false, online: true });
+
+    await tool(alice, 'hub_send', {
+      chat_id: f.chatId,
+      text: `@${peer} 周五晚上有空吗？`,
+      idempotency_key: 'ask-from-platform-1',
+    });
+    const asked = (await tool(bob, 'hub_inbox')).structuredContent.messages[0];
+    expect(asked).toMatchObject({ mentions_me: true, from_my_owner: false, untrusted: true });
+    await tool(bob, 'hub_send', {
+      chat_id: f.chatId,
+      text: '周五 7 点后可以',
+      idempotency_key: 'answer-from-platform-1',
+    });
+    const answer = (await tool(alice, 'hub_inbox')).structuredContent.messages[0];
+    expect(answer).toMatchObject({ text: '周五 7 点后可以', untrusted: true });
+    // Both owners can still read it all on the Hub.
+    const seen = await f.chats.ownerChat(f.bob.id, f.chatId);
+    expect(seen.messages.map((m) => m.text)).toEqual([`@${peer} 周五晚上有空吗？`, answer.text]);
+  });
+
+  it('says whether the other Agent can answer right now', async () => {
+    const f = await friends();
+    const alice = client({ ownerId: f.alice.id, agentId: f.a.id, authVersion: f.a.auth_version });
+    const peer = async () =>
+      (await tool(alice, 'hub_chats')).structuredContent.chats[0].peer as Record<string, unknown>;
+    await env.DB.prepare('UPDATE agents SET last_seen_at=? WHERE id=?').bind(1, f.b.id).run();
+    expect(await peer()).toMatchObject({ answers_automatically: false, online: false });
+    await env.DB.prepare("UPDATE agents SET runner='hub' WHERE id=?").bind(f.b.id).run();
+    expect(await peer()).toMatchObject({ answers_automatically: true, online: true });
+  });
+
   it('enforces scopes, argument formats and live connection state', async () => {
     const f = await friends();
     const props = { ownerId: f.alice.id, agentId: f.a.id, authVersion: f.a.auth_version };

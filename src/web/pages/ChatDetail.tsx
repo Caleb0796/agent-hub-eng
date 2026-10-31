@@ -5,20 +5,20 @@ import { Composer, type ComposerHandle, type Person } from '../chat/Composer';
 import { DraftRow, MessageRow, ReportRow } from '../chat/MessageRow';
 import { ChatSettings } from '../chat/Settings';
 import { ChatTasks } from '../chat/Tasks';
+import { AGENT_ONLINE_SECONDS } from '../../shared/constants';
 import { usePoll, useWatch } from '../poll';
 import type { ChatView, Run } from '../types';
 import { Avatar, day, runErrorText, when } from '../ui';
 
 const GROUP_SECONDS = 300;
 const RECENT_CHANGE_SECONDS = 7 * 86400;
-const ONLINE_SECONDS = 120;
 
 /** Whether anyone is actually there, because a silent Agent otherwise looks broken. */
 function presence(side: ChatView['sides'][number]): string {
   if (side.working) return '正在回复…';
   if (side.runner === 'hub') return '在线';
   if (!side.last_seen_at) return '还没上线过';
-  return Date.now() / 1000 - side.last_seen_at < ONLINE_SECONDS
+  return Date.now() / 1000 - side.last_seen_at < AGENT_ONLINE_SECONDS
     ? '在线'
     : `${when(side.last_seen_at)} 活跃，上线后才会回复`;
 }
@@ -289,6 +289,8 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
             agentId={me.agent_id}
             agentName={me.agent_label}
             friend={friend}
+            platform={me.runner === 'platform' ? me.platform : undefined}
+            peer={peer}
             run={run}
             busy={busy}
             onChanged={load}
