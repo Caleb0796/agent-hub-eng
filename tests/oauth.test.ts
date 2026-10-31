@@ -1,7 +1,7 @@
 import { env, server } from './runtime';
 import { describe, it, expect } from 'vitest';
 import { base64url, randomToken } from '../src/shared/crypto';
-import { seedOwner, ownerHeaders } from './helpers';
+import { seedOwner, ownerHeaders, service } from './helpers';
 import { scopes } from '../src/shared/protocol';
 
 const base = 'http://localhost:8789',
@@ -14,13 +14,7 @@ async function authorize(
 ) {
   const callback = redirect;
   const u = await seedOwner('OAuthOwner');
-  const create = await server.fetch(`${base}/api/agents`, {
-    method: 'POST',
-    headers: ownerHeaders(u),
-    body: JSON.stringify({ platform, label: 'Native ' + platform }),
-  });
-  const agent = await create.json<{ id: string }>();
-  expect(create.status).toBe(201);
+  const agent = await service().chats.createAgent(u.id, platform, 'Native ' + platform);
   const register = await server.fetch(`${base}/oauth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -64,9 +58,10 @@ async function authorize(
   expect(handle).toBeTruthy();
   expect(html).toContain('客户端名称由申请方提供');
   expect(html).toContain(new URL(callback).hostname);
-  if (platform === 'muse') {
-    expect(html).toContain('<option value="muse">');
-    expect(html).not.toContain('<option value="dot">');
+  if (redirect !== callback) {
+    // A known native callback fixes the platform; only loopback tests may choose one.
+    expect(html).toContain(`name="platform" value="${platform}"`);
+    expect(html).not.toContain('<select name="platform">');
   }
   const cookies = page.headers
     .getSetCookie()
@@ -154,9 +149,10 @@ async function authorize(
 describe('native OAuth without copying API keys', () => {
   it('requires an explicit connection choice and reconnects the original identity', async () => {
     const flow = await authorize('dot', callback, true);
-    expect(flow.html).toContain('<select name="agentId" required>');
-    expect(flow.html).toContain('<option value="" disabled selected>');
-    expect(flow.html).toContain(`待连接 · ID ${flow.agent.id.slice(0, 8)}`);
+    expect(flow.html).toContain(`name="agentId" value="${flow.agent.id}" required`);
+    expect(flow.html).toContain('name="agentId" value="new" required');
+    expect(flow.html).not.toContain('checked');
+    expect(flow.html).toContain(`ID ${flow.agent.id.slice(0, 8)}`);
     expect(flow.html).toContain('formnovalidate');
     const token = await (await flow.exchange()).json<{ access_token: string }>();
     const response = await server.fetch(resource, {
@@ -169,7 +165,7 @@ describe('native OAuth without copying API keys', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: 'hub_identity', arguments: {} },
+        params: { name: 'hub_whoami', arguments: {} },
       }),
     });
     expect(response.status).toBe(200);
@@ -259,26 +255,33 @@ describe('native OAuth without copying API keys', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: 'hub_identity', arguments: {} },
+        params: { name: 'hub_whoami', arguments: {} },
       }),
     });
     expect(identity.status).toBe(200);
     const identityBody = await identity.json<{
-      result: { structuredContent: { agent_id: string; owner_id: string } };
+      result: { structuredContent: { agent_id: string; owner_name: string } };
     }>();
     expect(identityBody.result.structuredContent.agent_id).toBe(flow.agent.id);
-    expect(identityBody.result.structuredContent.owner_id).toBe(flow.u.id);
-    const forbidden = await server.fetch(`${base}/api/agents`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token.access_token}`,
-        Origin: base,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ platform: 'muse', label: 'Unauthorized' }),
-    });
-    expect(forbidden.status).toBe(401);
-    const revoke = await server.fetch(`${base}/api/agents/${flow.agent.id}/revoke`, {
+    expect(identityBody.result.structuredContent.owner_name).toBe('OAuthOwner');
+    // An Agent token can never call owner administration.
+    for (const [method, path] of [
+      ['GET', '/api/dashboard'],
+      ['POST', '/api/invites'],
+      ['POST', `/api/agents/${flow.agent.id}/reset`],
+    ]) {
+      const forbidden = await server.fetch(`${base}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token.access_token}`,
+          Origin: base,
+          'Content-Type': 'application/json',
+        },
+        body: method === 'GET' ? undefined : '{}',
+      });
+      expect(forbidden.status, path).toBe(401);
+    }
+    const revoke = await server.fetch(`${base}/api/agents/${flow.agent.id}/reset`, {
       method: 'POST',
       headers: ownerHeaders(flow.u),
     });

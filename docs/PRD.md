@@ -6,7 +6,9 @@
 
 Agent Hub 让不同用户拥有的个人 Agent，在双方主人授权后进行一对一交流。目标体验是从一句“把你注册到 Agent Hub”开始，由软件准备连接，再由主人认领、授权和配对。Dot 与 Duet 已验证原生持续通信；Dot 与 Muse 已验证端点加密、任务级许可后的自动交流和硬截止。第一条加密产品试点路径优先采用 Dot 与 Muse，Duet 的加密与授权适配继续按同一门槛验证。当前仍是同一主人、人工配置的工程样机，尚未完成面向用户的自助平台。
 
-隐私目标是中央平台及其托管运维人员无法读取对话正文。双方 Agent 和各自主人可以查看原文；第三方内容审计必须获得明确授权。原生模型服务商和用户选择的端点运行环境仍属于明文处理的信任边界。这个目标需要端点加密和独立密钥管理，不能仅靠数据库加密或选择一家安全云厂商实现。
+（v1 原则，v2 首版不适用，见下方修订）隐私目标是中央平台及其托管运维人员无法读取对话正文。双方 Agent 和各自主人可以查看原文；第三方内容审计必须获得明确授权。原生模型服务商和用户选择的端点运行环境仍属于明文处理的信任边界。这个目标需要端点加密和独立密钥管理，不能仅靠数据库加密或选择一家安全云厂商实现。
+
+> **2026-10-30 修订（v2，优先于本文其余与之冲突的内容）**：产品形态改为 Agent 之间的长期聊天系统，见 [简化方案](superpowers/specs/2026-10-30-chat-core-design.md)。首版**不做端到端加密**：消息在 Hub 端加密存储、保留 30 天，Hub 技术上能解密，产品内没有运维查看入口。下文“中央 Hub 无法读取正文”“不持有正文解密密钥”“可信端点加解密”等原则不再适用于首版，作为后续可能的增强方向保留。其他变化：开放注册、只用通行密钥、不设用户名（偏离 REG02）；好友只能通过一次性邀请链接添加；每位主人只控制自己 Agent 的外发（默认逐条审核，可开自动窗口）；Agent 只有 4 个工具、没有管理权；Duet 纳入平台但需真机验证。旧实现与引用的 `prototypes/` 证据保留在 tag `pre-simplify`。
 
 # 1 产品决策与适用范围
 
@@ -99,7 +101,7 @@ MVP 是面向个人 Agent 用户、小团队成员与合作伙伴的邀请制安
 
 Muse采用的是“临时一次性任务的原生许可 + Hub硬截止 + 官方任务清理”。本轮没有新增全局站点或session规则；没有证实原生许可对象可直接设置600秒TTL。两张初始网络卡、连接器安装提示、Hub会话批准是不同步骤，产品不得宣传为从安装到聊天只点击一次。
 
-验收附件：[Dot Muse 十分钟会话逐条验收](../prototypes/dot-duet-poc/evidence/g0/session-grants/recovery-audit.json)；[Dot Muse 任务授权与清理状态](../prototypes/dot-duet-poc/evidence/g0/session-grants/recovery-status.json)。附件只含密文核验结果、摘要和运行元数据，不含问答正文、nonce或端点私钥。
+验收附件：[Dot Muse 十分钟会话逐条验收](https://github.com/Caleb0796/agent-hub/tree/pre-simplify/prototypes/dot-duet-poc/evidence/g0/session-grants/recovery-audit.json)；[Dot Muse 任务授权与清理状态](https://github.com/Caleb0796/agent-hub/tree/pre-simplify/prototypes/dot-duet-poc/evidence/g0/session-grants/recovery-status.json)。附件只含密文核验结果、摘要和运行元数据，不含问答正文、nonce或端点私钥。
 
 ## 从工程样机到用户自助平台
 

@@ -1,200 +1,186 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { idSchema, platformSchema, signatureSchema } from '../shared/protocol';
-import {
-  db,
-  nowSeconds,
-  owner,
-  ownerView,
-  rateLimit,
-  type HubBindings,
-  type HubContext,
-} from './common';
-import { Hub } from './hub';
-import { NativeEvents } from './events';
+import { displayNameSchema, idSchema, textSchema, windowMinutes } from '../shared/protocol';
+import { owner, publicOwner, rateLimit, type HubBindings, type HubContext } from './common';
+import { chatService } from './services';
 
+// Owner (browser session) operations. Every write needs the session cookie and CSRF token;
+// destructive or trust-changing ones also need a recent passkey login.
 const router = new Hono<{ Bindings: HubBindings }>();
-const hub = (c: HubContext) => new Hub(db(c.env), c.env.PUBLIC_ORIGIN);
-const signatureInput = z.object({ signature: signatureSchema }).strict();
+const chats = (c: HubContext) => chatService(c.env);
+const write = (c: HubContext) => owner(c, { write: true });
+const fresh = (c: HubContext) => owner(c, { write: true, fresh: true });
+const body = async <T extends z.ZodType>(c: HubContext, schema: T): Promise<z.infer<T>> =>
+  schema.parse(await c.req.json().catch(() => ({})));
+const id = (c: HubContext, name = 'id') => idSchema.parse(c.req.param(name));
+const sideInput = z.object({ agentId: idSchema.optional() }).strict();
 
 router.use('*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
   await next();
 });
+
 router.get('/me', async (c) =>
   c.json({
-    owner: await ownerView(db(c.env), (await owner(c)).id),
+    owner: publicOwner(await owner(c)),
     features: {
-      platforms: ['dot', 'muse'],
-      mode: 'private-alpha',
-      ownerRecovery: false,
+      platforms: ['dot', 'muse', 'duet'],
+      endToEndEncrypted: false,
+      retentionDays: 30,
       backgroundWake: false,
-      nativeEvents: true,
-      privateHistory: false,
     },
   }),
 );
-router.get('/dashboard', async (c) => c.json(await hub(c).dashboard((await owner(c)).id)));
-
-router.post('/agents', async (c) => {
-  const u = await owner(c, { write: true, fresh: true });
-  await rateLimit(c.env, `create-agent:${u.id}`, 10, 3600);
-  const input = z
-    .object({ platform: platformSchema, label: z.string().trim().min(1).max(60) })
-    .strict()
-    .parse(await c.req.json());
-  return c.json(await hub(c).createAgent(u.id, input.platform, input.label), 201);
-});
-router.get('/agents/:id', async (c) =>
-  c.json(await hub(c).agentDetail((await owner(c)).id, idSchema.parse(c.req.param('id')))),
+router.delete('/me', async (c) => c.json(await chats(c).deleteAccount((await fresh(c)).id)));
+router.get('/dashboard', async (c) => c.json(await chats(c).dashboard((await owner(c)).id)));
+router.post('/notifications/seen', async (c) =>
+  c.json(await chats(c).markNotificationsSeen((await write(c)).id)),
 );
-router.post('/agents/:id/claim', async (c) => {
-  const u = await owner(c, { write: true, fresh: true }),
-    input = signatureInput.parse(await c.req.json());
-  return c.json(await hub(c).ownerClaim(u.id, idSchema.parse(c.req.param('id')), input.signature));
-});
-router.post('/agents/:id/revoke', async (c) =>
-  c.json(
-    await hub(c).revokeAgent(
-      (await owner(c, { write: true, fresh: true })).id,
-      idSchema.parse(c.req.param('id')),
-    ),
-  ),
-);
+router.get('/audit', async (c) => c.json({ events: await chats(c).auditLog((await owner(c)).id) }));
 
-router.post('/pairings', async (c) => {
-  const u = await owner(c, { write: true, fresh: true });
+// ------------------------------------------------------------------ invites and contacts
+
+router.post('/invites', async (c) => {
+  const u = await write(c);
   await rateLimit(c.env, `invite:${u.id}`, 20, 3600);
-  const input = z
-    .object({ agentId: idSchema })
-    .strict()
-    .parse(await c.req.json());
-  return c.json(await hub(c).createPairing(u.id, input.agentId), 201);
+  const input = await body(c, z.object({ agentId: idSchema.nullable().default(null) }).strict());
+  return c.json(await chats(c).createInvite(u.id, input.agentId), 201);
 });
-router.post('/pairing-invitation', async (c) => {
-  const u = await owner(c, { write: true }),
-    { token } = z
-      .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
-      .strict()
-      .parse(await c.req.json());
-  return c.json(await hub(c).pairingInvitation(u.id, token));
-});
-router.post('/pairings/join', async (c) => {
-  const u = await owner(c, { write: true, fresh: true }),
-    input = z
-      .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), agentId: idSchema })
-      .strict()
-      .parse(await c.req.json());
-  return c.json(await hub(c).joinPairing(u.id, input.token, input.agentId));
-});
-router.post('/pairings/:id/approve', async (c) => {
-  const u = await owner(c, { write: true, fresh: true }),
-    input = signatureInput.parse(await c.req.json());
-  return c.json(
-    await hub(c).approvePairing(u.id, idSchema.parse(c.req.param('id')), input.signature),
-  );
-});
-router.post('/pairings/:id/revoke', async (c) =>
-  c.json(
-    await hub(c).revokePairing(
-      (await owner(c, { write: true, fresh: true })).id,
-      idSchema.parse(c.req.param('id')),
-    ),
-  ),
+router.get('/invites', async (c) =>
+  c.json({ invites: await chats(c).invites((await owner(c)).id) }),
 );
-
-router.post('/conversations', async (c) => {
-  const u = await owner(c, { write: true, fresh: true });
-  await rateLimit(c.env, `conversation:${u.id}`, 20, 3600);
-  const input = z
-    .object({
-      pairingId: idSchema,
-      duration: z.number().int().min(60).max(600).default(600),
-      maxMessages: z.number().int().min(2).max(64).default(40),
-    })
-    .strict()
-    .parse(await c.req.json());
-  return c.json(
-    await hub(c).createConversation(u.id, input.pairingId, input.duration, input.maxMessages),
-    201,
-  );
-});
-router.post('/conversations/:id/approve', async (c) => {
-  const u = await owner(c, { write: true, fresh: true }),
-    input = signatureInput.parse(await c.req.json());
-  return c.json(
-    await hub(c).approveConversation(u.id, idSchema.parse(c.req.param('id')), input.signature),
-  );
-});
-router.post('/conversations/:id/end', async (c) =>
-  c.json(
-    await hub(c).closeConversation(idSchema.parse(c.req.param('id')), {
-      owner: (await owner(c, { write: true })).id,
-    }),
-  ),
+router.delete('/invites/:id', async (c) =>
+  c.json(await chats(c).revokeInvite((await write(c)).id, id(c))),
 );
-router.post('/conversations/:id/decline', async (c) =>
-  c.json(
-    await hub(c).closeConversation(
-      idSchema.parse(c.req.param('id')),
-      { owner: (await owner(c, { write: true })).id },
-      'owner-declined',
-    ),
-  ),
-);
-router.post('/conversations/:id/retry-notifications', async (c) => {
-  const u = await owner(c, { write: true });
-  await rateLimit(c.env, `retry-notification:${u.id}`, 20, 3600);
-  return c.json(await new NativeEvents(hub(c)).retry(u.id, idSchema.parse(c.req.param('id'))));
+const tokenInput = z.object({ token: z.string().min(20).max(100) }).strict();
+// Public: shows only the inviter's self-declared name and Agent before sign-up.
+router.post('/invites/preview', async (c) => {
+  await rateLimit(c.env, `invite-preview:${c.req.header('X-Forwarded-For') ?? 'local'}`, 30);
+  return c.json(await chats(c).previewInvite((await body(c, tokenInput)).token));
 });
-router.get('/conversations/:id', async (c) => {
-  const u = await owner(c),
-    h = hub(c),
-    id = idSchema.parse(c.req.param('id')),
-    row = await h.conversation(id, u.id);
-  const messages = await h.connection
-    .prepare(
-      'SELECT id,position,sender_id,recipient_id,accepted_at,delivered_at,(receipt_json IS NOT NULL) AS endpoint_receipt FROM messages WHERE conversation_id=? ORDER BY position',
-    )
-    .bind(id)
-    .all();
-  const readiness = await h.connection
-    .prepare(
-      'SELECT agent_id,ready_at,native_context_json,cleanup_status FROM readiness WHERE conversation_id=?',
-    )
-    .bind(id)
-    .all();
-  return c.json({
-    ...h.conversationView(row),
-    messages: messages.results,
-    readiness: readiness.results,
-    notifications: (
-      await h.connection
-        .prepare(
-          `SELECT s.agent_id,s.name,d.delivered_at,d.failed_at,d.http_status
-      FROM event_deliveries d JOIN event_subscriptions s ON s.id=d.subscription_id
-      WHERE d.conversation_id=? ORDER BY d.id`,
-        )
-        .bind(id)
-        .all()
-    ).results,
-    server_time: nowSeconds(),
-  });
+router.post('/invites/accept', async (c) => {
+  const u = await write(c);
+  const input = await body(
+    c,
+    z
+      .object({ token: tokenInput.shape.token, agentId: idSchema.nullable().default(null) })
+      .strict(),
+  );
+  return c.json(await chats(c).acceptInvite(u.id, input.token, input.agentId));
 });
 
-router.get('/audit', async (c) => {
-  const u = await owner(c),
-    rows = await db(c.env)
-      .prepare(
-        `SELECT DISTINCT e.* FROM audit_events e
-    WHERE e.owner_id=? OR e.agent_id IN(SELECT id FROM agents WHERE owner_id=?)
-    OR e.entity_id IN(SELECT id FROM pairings WHERE owner_a=? OR owner_b=?)
-    OR e.entity_id IN(SELECT c.id FROM conversations c JOIN pairings p ON p.id=c.pairing_id WHERE p.owner_a=? OR p.owner_b=?)
-    ORDER BY e.created_at DESC LIMIT 200`,
-      )
-      .bind(u.id, u.id, u.id, u.id, u.id, u.id)
-      .all();
-  return c.json({ events: rows.results });
+router.get('/contacts', async (c) =>
+  c.json({ contacts: await chats(c).contacts((await owner(c)).id) }),
+);
+router.post('/contacts/:id/agents', async (c) => {
+  const u = await write(c);
+  const input = await body(c, z.object({ agentIds: z.array(idSchema).max(8) }).strict());
+  return c.json(await chats(c).setExposure(u.id, id(c), input.agentIds));
 });
+router.post('/contacts/:id/block', async (c) =>
+  c.json(await chats(c).block((await write(c)).id, id(c))),
+);
+router.post('/contacts/:id/unblock', async (c) =>
+  c.json(await chats(c).unblock((await write(c)).id, id(c))),
+);
+router.delete('/contacts/:id', async (c) =>
+  c.json(await chats(c).removeContact((await fresh(c)).id, id(c))),
+);
+
+// ------------------------------------------------------------------ chats
+
+router.post('/chats', async (c) => {
+  const u = await write(c);
+  await rateLimit(c.env, `chat-request:${u.id}`, 30, 3600);
+  const input = await body(c, z.object({ agentId: idSchema, peerAgentId: idSchema }).strict());
+  return c.json(await chats(c).requestChat(u.id, input.agentId, input.peerAgentId), 201);
+});
+router.get('/chats/:id', async (c) => c.json(await chats(c).ownerChat((await owner(c)).id, id(c))));
+router.post('/chats/:id/approve', async (c) =>
+  c.json(await chats(c).approveChat((await write(c)).id, id(c))),
+);
+router.post('/chats/:id/reject', async (c) =>
+  c.json(await chats(c).rejectChat((await write(c)).id, id(c))),
+);
+router.post('/chats/:id/close', async (c) =>
+  c.json(await chats(c).closeChat((await write(c)).id, id(c))),
+);
+router.post('/chats/:id/pause', async (c) => {
+  const u = await write(c);
+  return c.json(await chats(c).pause(u.id, id(c), (await body(c, sideInput)).agentId));
+});
+router.post('/chats/:id/resume', async (c) => {
+  const u = await write(c);
+  return c.json(await chats(c).resume(u.id, id(c), (await body(c, sideInput)).agentId));
+});
+router.post('/chats/:id/window', async (c) => {
+  const u = await fresh(c);
+  const input = await body(
+    c,
+    z
+      .object({
+        agentId: idSchema.optional(),
+        minutes: z.union(
+          windowMinutes.map((m) => z.literal(m)) as [
+            z.ZodLiteral<10>,
+            z.ZodLiteral<60>,
+            z.ZodLiteral<1440>,
+          ],
+        ),
+      })
+      .strict(),
+  );
+  return c.json(await chats(c).setWindow(u.id, id(c), input.minutes, input.agentId));
+});
+router.post('/chats/:id/window/close', async (c) => {
+  const u = await write(c);
+  return c.json(await chats(c).closeWindow(u.id, id(c), (await body(c, sideInput)).agentId));
+});
+router.post('/chats/:id/clear', async (c) =>
+  c.json(await chats(c).clearView((await write(c)).id, id(c))),
+);
+router.post('/chats/:id/messages', async (c) => {
+  const u = await write(c);
+  await rateLimit(c.env, `owner-send:${u.id}`, 60);
+  const input = await body(
+    c,
+    z.object({ text: textSchema, replyTo: idSchema.optional() }).strict(),
+  );
+  return c.json(await chats(c).ownerSend(u.id, id(c), input.text, input.replyTo), 201);
+});
+router.post('/messages/:id/withdraw', async (c) =>
+  c.json(await chats(c).withdraw((await write(c)).id, id(c))),
+);
+
+// ------------------------------------------------------------------ review
+
+router.get('/review', async (c) =>
+  c.json({ drafts: await chats(c).reviewQueue((await owner(c)).id) }),
+);
+router.post('/drafts/:id/approve', async (c) =>
+  c.json(await chats(c).approveDraft((await write(c)).id, id(c))),
+);
+router.post('/drafts/:id/reject', async (c) =>
+  c.json(await chats(c).rejectDraft((await write(c)).id, id(c))),
+);
+
+// ------------------------------------------------------------------ agents
+
+router.post('/agents/:id/rename', async (c) => {
+  const u = await write(c);
+  return c.json(
+    await chats(c).renameAgent(
+      u.id,
+      id(c),
+      (await body(c, z.object({ label: displayNameSchema }).strict())).label,
+    ),
+  );
+});
+router.post('/agents/:id/reset', async (c) =>
+  c.json(await chats(c).resetConnection((await fresh(c)).id, id(c))),
+);
+router.post('/agents/:id/retire', async (c) =>
+  c.json(await chats(c).retireAgent((await fresh(c)).id, id(c))),
+);
 
 export default router;

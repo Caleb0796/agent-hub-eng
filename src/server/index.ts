@@ -2,28 +2,26 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import api from './api';
 import auth from './auth';
-import { provider, oauthApi, oauthRoutes, AuthorizationError, CimdFetchError } from './oauth';
+import { provider, oauthRoutes, AuthorizationError, CimdFetchError } from './oauth';
 import {
   boundedRequest,
   db,
   HubError,
   nowSeconds,
-  origin,
+  wrongOrigin,
   rateLimit,
   type HubBindings,
 } from './common';
-import { Hub } from './hub';
-import { idSchema, signatureSchema } from '../shared/protocol';
 import onboarding from './onboarding';
 import { defaultCsp } from './security';
-import { NativeEvents } from './events';
+import { chatService } from './services';
 
 const app = new Hono<{ Bindings: HubBindings }>();
 app.route('/api/auth', auth);
 app.route('/api', api);
 app.route('/', oauthRoutes);
 app.route('/', onboarding);
-app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.2.3' }));
+app.get('/healthz', (c) => c.json({ ok: true, service: 'agent-hub', version: '0.3.0' }));
 app.get('/api/cron/cleanup', async (c) => {
   const expected = c.env.CRON_SECRET;
   if (!expected || c.req.header('Authorization') !== `Bearer ${expected}`)
@@ -33,63 +31,35 @@ app.get('/api/cron/cleanup', async (c) => {
 });
 app.get('/.well-known/agent-hub.json', (c) =>
   c.json({
-    version: 'agent-hub/1',
+    version: 'agent-hub/2',
     name: 'Agent Hub',
-    platforms: ['dot', 'muse'],
+    platforms: ['dot', 'muse', 'duet'],
     origin: c.env.PUBLIC_ORIGIN,
     mcp: `${c.env.PUBLIC_ORIGIN}/mcp`,
     protocol_versions: ['2026-07-28', '2025-03-26'],
+    tools: ['hub_whoami', 'hub_chats', 'hub_inbox', 'hub_send'],
     oauth: {
       issuer: c.env.PUBLIC_ORIGIN,
       authorization_url: `${c.env.PUBLIC_ORIGIN}/authorize`,
       token_url: `${c.env.PUBLIC_ORIGIN}/oauth/token`,
       registration_url: `${c.env.PUBLIC_ORIGIN}/oauth/register`,
       resource: `${c.env.PUBLIC_ORIGIN}/mcp`,
-      scopes: ['agent:read', 'agent:enroll', 'agent:message'],
+      scopes: ['agent:read', 'agent:message'],
       public_clients_require_pkce_s256: true,
     },
-    enrollment: {
-      owner_claim_required: true,
-      endpoint_private_keys_stay_local: true,
-      agent_cannot_approve_for_owner: true,
+    data: {
+      end_to_end_encrypted: false,
+      hub_can_decrypt: true,
+      retention_days: 30,
+      agent_messages_reviewed_by_default: true,
     },
     guides: {
       dot: `${c.env.PUBLIC_ORIGIN}/connect/dot`,
       muse: `${c.env.PUBLIC_ORIGIN}/connect/muse`,
-    },
-    receiving: {
-      requests_tool: 'hub_requests',
-      compatibility_state_field: 'pending_requests',
-      heartbeat_tool: 'hub_receiver_heartbeat',
-      events: ['hub.request.created', 'hub.session.authorized'],
-      event_methods: ['events/list', 'events/subscribe', 'events/unsubscribe'],
-      first_native_setup_required: true,
-      notification_is_not_execution_permission: true,
+      duet: `${c.env.PUBLIC_ORIGIN}/connect/duet`,
     },
   }),
 );
-app.post('/api/endpoint/cleanup', async (c) => {
-  await rateLimit(c.env, `cleanup:${c.req.header('X-Forwarded-For') ?? 'local'}`, 30);
-  const value = z
-    .object({
-      agentId: idSchema,
-      conversationId: idSchema,
-      proof: z
-        .object({ payload: z.record(z.string(), z.unknown()), signature: signatureSchema })
-        .strict(),
-    })
-    .strict()
-    .parse(await c.req.json());
-  // This narrowly scoped, signature-only receipt remains available after OAuth revocation.
-  // It cannot read messages, reopen a grant or change any owner's approval.
-  return c.json(
-    await new Hub(db(c.env), c.env.PUBLIC_ORIGIN).reportCleanup(
-      value.agentId,
-      value.conversationId,
-      value.proof,
-    ),
-  );
-});
 app.all('/api/*', (c) => c.json({ error: 'not_found', message: '接口不存在' }, 404));
 app.all('/.well-known/*', (c) => c.json({ error: 'not_found' }, 404));
 app.get('*', async (c) => {
@@ -143,7 +113,7 @@ export function headers(response: Response): Response {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      if (new URL(request.url).origin !== origin(env).origin)
+      if (wrongOrigin(request, env))
         return headers(Response.json({ error: 'wrong_origin' }, { status: 421 }));
       const bounded = await boundedRequest(request);
       if (new URL(request.url).pathname === '/oauth/register')
@@ -155,64 +125,15 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-export function nativeEvents(env: Env): NativeEvents {
-  const api = oauthApi(env);
-  return new NativeEvents(
-    new Hub(db(env), env.PUBLIC_ORIGIN),
-    undefined,
-    async (agentId, grantId, clientId) => {
-      if (!(await api.lookupClient(clientId))) return false;
-      let cursor: string | undefined;
-      for (let page = 0; page < 10; page++) {
-        const result = await api.listUserGrants(agentId, { limit: 100, cursor });
-        const grant = result.items.find((g) => g.id === grantId && g.clientId === clientId);
-        if (grant)
-          return (
-            grant.scope.includes('agent:read') &&
-            (!grant.expiresAt || grant.expiresAt > nowSeconds()) &&
-            (Array.isArray(grant.resource) ? grant.resource : [grant.resource]).includes(
-              `${env.PUBLIC_ORIGIN}/mcp`,
-            )
-          );
-        cursor = result.cursor;
-        if (!cursor) return false;
-      }
-      return false;
-    },
-  );
-}
-
 export async function cleanup(env: Env): Promise<void> {
   const at = nowSeconds(),
     connection = db(env);
+  await chatService(env).cleanup();
   await connection.batch([
-    connection
-      .prepare(
-        "UPDATE conversations SET status='expired',closed_at=COALESCE(deadline,expires_at),close_reason='deadline_reached' WHERE status NOT IN ('closed','expired','revoked') AND (expires_at<=? OR (deadline IS NOT NULL AND deadline<=?))",
-      )
-      .bind(at, at),
-    connection
-      .prepare(
-        "UPDATE pairings SET status='expired' WHERE status IN ('invited','confirming','awaiting_endpoints') AND expires_at<=?",
-      )
-      .bind(at),
     connection.prepare('DELETE FROM auth_challenges WHERE expires_at<=?').bind(at),
     connection.prepare('DELETE FROM browser_sessions WHERE expires_at<=?').bind(at),
     connection.prepare('DELETE FROM rate_limits WHERE expires_at<=?').bind(at),
     connection.prepare('DELETE FROM oauth_records WHERE expires_at<=?').bind(at),
-    connection.prepare('DELETE FROM native_receivers WHERE expires_at<?').bind(at - 86400),
   ]);
-  // Actual native task state is never invented by this cleanup job.
   await provider(env, app).purgeExpiredData(env as HubBindings, { batchSize: 100 });
-  await nativeEvents(env).flush();
-  await connection.batch([
-    connection
-      .prepare(
-        'DELETE FROM event_deliveries WHERE delivered_at<? OR failed_at<? OR subscription_id IN (SELECT id FROM event_subscriptions WHERE expires_at<? OR disabled_at<?)',
-      )
-      .bind(at - 604800, at - 604800, at - 86400, at - 86400),
-    connection
-      .prepare('DELETE FROM event_subscriptions WHERE expires_at<? OR disabled_at<?')
-      .bind(at - 86400, at - 86400),
-  ]);
 }

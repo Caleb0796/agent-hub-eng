@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { databaseClient } from './storage';
 import { createRuntime } from './runtime';
+import { messageKeysFrom } from './vault';
 
 export function fileAssets(root = resolve('dist')): Env['ASSETS'] {
   const types: Record<string, string> = {
@@ -41,15 +42,20 @@ export function runtimeFromEnvironment(waitUntil?: (promise: Promise<unknown>) =
   if (!url || !PUBLIC_ORIGIN) throw new Error('TURSO_DATABASE_URL and PUBLIC_ORIGIN are required');
   if (hosted && (!token || !/^libsql:\/\//.test(url)))
     throw new Error('Hosted deployment requires a remote Turso database');
-  if (hosted && process.env.SIGNUP_MODE !== 'invite')
-    throw new Error('Hosted alpha requires invite-only registration');
+  const SIGNUP_MODE = process.env.SIGNUP_MODE ?? 'open';
+  if (!['open', 'closed'].includes(SIGNUP_MODE))
+    throw new Error('SIGNUP_MODE must be open or closed');
+  const MESSAGE_KEYS = messageKeysFrom(process.env);
+  if (!MESSAGE_KEYS[1]) throw new Error('MESSAGE_KEY_V1 is required');
   const client = databaseClient(url, token);
   return createRuntime(
     client,
     {
       APP_ENV,
       PUBLIC_ORIGIN,
-      SIGNUP_MODE: process.env.SIGNUP_MODE ?? 'invite',
+      SIGNUP_MODE,
+      SIGNUP_DAILY_CAP: Number(process.env.SIGNUP_DAILY_CAP ?? 200),
+      MESSAGE_KEYS,
       CRON_SECRET: process.env.CRON_SECRET,
     },
     fileAssets(),

@@ -1,12 +1,12 @@
 import type { Client } from '@libsql/client';
-import handler, { cleanup, errorResponse, headers, nativeEvents } from './index';
-import { boundedRequest, origin } from './common';
+import handler, { cleanup, errorResponse, headers } from './index';
+import { boundedRequest, wrongOrigin } from './common';
 import { Connection, OAuthStore } from './storage';
 import './env';
 
 export type RuntimeSettings = Pick<
   Env,
-  'PUBLIC_ORIGIN' | 'APP_ENV' | 'SIGNUP_MODE' | 'CRON_SECRET'
+  'PUBLIC_ORIGIN' | 'APP_ENV' | 'SIGNUP_MODE' | 'SIGNUP_DAILY_CAP' | 'MESSAGE_KEYS' | 'CRON_SECRET'
 >;
 
 export function createRuntime(
@@ -44,7 +44,7 @@ export function createRuntime(
     } as unknown as ExecutionContext;
     // Do not hold the database write lock while receiving an untrusted body.
     try {
-      if (new URL(request.url).origin !== origin(env).origin)
+      if (wrongOrigin(request, env))
         return headers(Response.json({ error: 'wrong_origin' }, { status: 421 }));
       request = await boundedRequest(request);
     } catch (error) {
@@ -67,21 +67,6 @@ export function createRuntime(
     try {
       if (atomic) tx = await client.transaction('write');
       const response = await handler.fetch(request, tx ? bindings(new Connection(tx)) : env, ctx);
-      if (
-        !atomic &&
-        response.ok &&
-        (path === '/mcp' ||
-          path === '/api/dashboard' ||
-          (request.method === 'POST' && path.startsWith('/api/')))
-      ) {
-        ctx.waitUntil(
-          nativeEvents(env)
-            .flush()
-            .catch(() => {
-              console.error(JSON.stringify({ event: 'event_delivery_deferred' }));
-            }),
-        );
-      }
       if (tx) {
         await Promise.all(pending);
         if (response.status >= 500) await tx.rollback();

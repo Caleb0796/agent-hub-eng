@@ -1,8 +1,0 @@
-{
-  "host": "betting-manual-seattle-knife.trycloudflare.com",
-  "visible_history_rows": 18,
-  "allowed_once_rows": 18,
-  "always_allowed_rows": 0,
-  "includes_preparation": true,
-  "scope": "Observed native approval history rows, not a complete HTTP request count"
-}

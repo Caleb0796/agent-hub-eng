@@ -1,38 +1,22 @@
-# First-session implementation status
+# Implementation status (v2)
 
-The current slice is **owner onboarding → claim → pairing → dual consent → encrypted session**. It is an alpha implementation, not completion of the full PRD.
+The chat core described in [the design](superpowers/specs/2026-10-30-chat-core-design.md) is implemented and covered by automated tests (`npm run check`): permission matrix (`tests/policy.test.ts`), lifecycle scenarios (`tests/chat.test.ts`), MCP tools (`tests/mcp.test.ts`), OAuth, passkeys, storage, an end-to-end flow with two owners and three platform identities (`tests/e2e.run.mjs`) and an HTTP smoke test.
 
-## Native runtime integration, 2026-10-29
+| Area               | Implemented                                                                                                                              | Remaining                                                             |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Owner identity     | Open sign-up with a name and one passkey, login with discoverable passkeys, second passkey, operator recovery links, account deletion    | Real browser and mobile checks (iPhone, Android, opening from WeChat) |
+| Agent connection   | One-button OAuth consent that creates or explicitly reconnects an Agent; reset and retire; "authorized" vs "online"                      | Gates A, B, D below                                                   |
+| Contacts and chats | One-time invites, per-contact Agent exposure, chat requests with receiver approval and 24-hour cooldown, same-owner chats, block, remove | —                                                                     |
+| Sending            | Review by default, per-side auto windows, DLP holds, idempotent sends, owner messages, withdrawal, pause, close                          | Gate C on Duet                                                        |
+| Delivery           | Per-side progress with compare-and-set (at-most-once), history replay, 30-day retention                                                  | Background wake-up is not implemented (gate F)                        |
 
-The real App now has contact quick-start actions, shared invitation reminders, and a connection-bound `hub_requests` inbox. MCP 2.0 event discovery/subscription and Standard Webhooks delivery cover invitation and dual-approved session events. Persistent outbox records, public-only socket validation, secret rotation, subscription/OAuth revocation checks, delivery leases and bounded retries are covered by regression tests. Receiver heartbeats remain explicitly agent-reported and never grant permission. Production builds apply transactional schema migrations using the existing hosted integration environment.
+## Native acceptance gates (not yet verified)
 
-The current Dot runtime can retain the original 13-tool catalog even after its native plugin details show all 15 tools and both events. A backward-compatible `hub_state.pending_requests` metadata field therefore provides the addressed request summaries through its existing authenticated read operation. Approved conversations remain separately gated by both signatures. An authenticated status query is recorded only as `status-query`, not as a running receiver or platform permission; server-internal snapshots never generate that liveness signal. Native event-source discovery and minute-level native receiver scheduling still require actual account acceptance rather than inferred availability.
+Protocol tests passing does not mean a platform works. Record each gate in `docs/evidence/`: click counts, native confirmation cards, actual callback URLs, failures and recovery.
 
-The endpoint bundle also includes a separately versioned, local-only `runtime_guard.py`. Its atomic claims persist across a native worker's separate tool calls, generate per-run holders, refuse stale takeovers and deduplicate completed conversations. It does not access the endpoint private keys, make network calls or grant execution permission; first installation/execution requires approval for that source version. The encryption endpoint source/hash remains unchanged. Concurrent-process guard behavior is covered by Python tests.
-
-Live owner claims and pairing were completed with two accounts operated by one person. That does not satisfy independent-user acceptance. Dot event subscriptions and Muse's explicitly authorized persistent native receiver still require first-time native setup and a real event/10-minute-session acceptance run; the App must not label a callback receipt, heartbeat or Hub readiness as proof of native execution or permission. No replacement model API, copied credentials, or website-wide permanent Allow is part of this runtime design.
-
-| Boundary                  | Implemented                                                                                                                                                                     | Evidence / remaining gate                                                                                                             |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Owner identity            | Passkeys, origin/challenge/UV checks, independent sessions; PRF-derived (cross-device) or browser-held approval keys, guarded pre-claim key replacement, number-matching claims | Tests use valid synthetic authenticator attestations; the real browser's authenticator UI still needs a human acceptance check        |
-| Native account connection | OAuth discovery, CIMD/DCR, PKCE, resource/scope binding, per-Agent token and revocation                                                                                         | Protocol tests pass; Dot/Muse's actual hosted installation and OAuth screens remain to be tested against the hosted pilot             |
-| Endpoint enrollment       | Local key generation, signed public registration, owner safety code, signed claim and endpoint confirmation                                                                     | Two independent endpoint processes complete this in the E2E test                                                                      |
-| Pairing                   | One-time fragment invitation, separate owners, owner signatures, pinned keys and both endpoint acknowledgements                                                                 | Wrong owner, changed identity and replay boundaries covered; real two-person safety-code ceremony pending                             |
-| Session authorization     | Immutable policy signed by both owners, distinct native readiness proofs                                                                                                        | Hub grants never override native platform approval; native execution evidence is explicitly agent-reported                            |
-| Transport                 | Ciphertext-only envelopes, signatures, fixed routing, counters, idempotency and exact reply chain                                                                               | Four actual age-encrypted messages decrypted by the opposite endpoint, package digests matched                                        |
-| Stops and cleanup         | Transactional quota/deadline/revocation; signed cleanup receipts; stale auth/challenge cleanup                                                                                  | Native task creation/removal must run through the platform's official tools; Hub cannot claim native cleanup from its own timer alone |
-| User interface            | Owner dashboard, connection guide, claims, invitations, safety-code approval, session status and activity                                                                       | Public UI build inspected; authenticated browser flows need a real/available test authenticator                                       |
-
-## Next acceptance milestone
-
-Use a fixed HTTPS, invite-only pilot with two non-project participants. Each uses their own native Dot or Muse account and their own browser-held owner key. They must complete installation, OAuth, claim, pairing and one limited session without a developer entering credentials or configuration on their behalf. Record the actual initial permission cards, callback behavior, all later approvals and final native cleanup.
-
-Until that milestone passes, the repository must not describe the new MVP as already proven for two real users on the native platforms. The prior 21-message experiment remains a separate manually configured feasibility result.
-
-## Deliberately not in this slice
-
-Private history reading, owner-key recovery across devices, production backup deletion and retention, forward secrecy, multi-device enrollment, vendor identity attestation, generic external wake-up, public connector marketplace review and third-party content audit remain open PRD work.
-
-## Hosting migration
-
-The implementation now targets Vercel Functions and Turso/libSQL. The Cloudflare deployment configuration and Workers emulator were removed. The original 18 protocol/HTTP tests and actual Python encryption E2E run on Node.js/libSQL; additional tests cover transactional rollback, OAuth expiry/pagination/restart persistence, concurrent authorization-code redemption, cron authentication and public-network metadata policy. The Vercel/Turso pilot is now deployed and its live invitation gate, passkey options, discovery and authentication boundaries have been checked without creating owner accounts. The two-human Dot/Muse acceptance gate remains open.
+- **A** Dot and Muse connect through OAuth and use the four new tools. Dot previously cached the old tool list; reconnect after the switch.
+- **B** Duet connects through OAuth. Unverified; its callback must be captured from a real connection before it is allowlisted. If it fails, Duet is not part of the first release.
+- **C** Duet sending approval behaviour. If every send needs native approval, auto windows are marked unsupported on Duet.
+- **D** Muse continuous receive/send. Only one-time tasks with task-scoped permission were observed before.
+- **E** Two owners who are not project members complete first setup and one chat without engineering help. Required before any external pilot. Measure time and website versus platform steps separately.
+- **F** Background wake-up on all three platforms: unverified. v2 only delivers when an Agent runs and fetches.

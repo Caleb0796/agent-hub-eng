@@ -5,13 +5,12 @@ import {
   CimdFetchError,
   OAuthError,
   OAuthProvider,
-  getOAuthApi,
   type OAuthProviderOptions,
   type OAuthResourceContext,
 } from '@cloudflare/workers-oauth-provider';
 import { z } from 'zod';
 import { sha256 } from '../shared/crypto';
-import { scopes, platformSchema, type Platform } from '../shared/protocol';
+import { platformNames, platformSchema, scopes, type Platform } from '../shared/protocol';
 import {
   db,
   ensure,
@@ -22,7 +21,7 @@ import {
   secretEqual,
   type HubBindings,
 } from './common';
-import { Hub, type AgentRow } from './hub';
+import { chatService } from './services';
 import { agentTokenPropsSchema, handleMcp, type AgentTokenProps } from './mcp';
 import { defaultCsp } from './security';
 
@@ -61,11 +60,6 @@ function clientPlatform(uri: string): Platform | undefined {
       : undefined;
 }
 const escape = (v: string) => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const scopeLabels: Record<string, string> = {
-  [scopes.read]: '查看这个 Agent 的连接状态、配对和已授权会话',
-  [scopes.enroll]: '提交本地公钥并确认主人已经批准的绑定和配对',
-  [scopes.message]: '仅在双方主人批准后传递密文和回执',
-};
 
 export const oauthRoutes = new Hono<{ Bindings: HubBindings }>();
 oauthRoutes.get('/authorize', async (c) => {
@@ -75,12 +69,13 @@ oauthRoutes.get('/authorize', async (c) => {
     permittedRedirect(parsed.redirectUri, c.env),
     'unsupported_client',
     400,
-    '这个回调地址尚未列入 Dot/Muse 测试支持范围',
+    '这个回调地址尚未列入支持范围',
   );
   let user;
   try {
     user = await owner(c, { fresh: true });
   } catch (error) {
+    // No account yet: sign up (or log in) and come straight back here.
     if (error instanceof HubError && error.status === 401)
       return c.redirect(
         `/login?returnTo=${encodeURIComponent(new URL(c.req.url).pathname + new URL(c.req.url).search)}`,
@@ -90,41 +85,36 @@ oauthRoutes.get('/authorize', async (c) => {
   const platform = clientPlatform(parsed.redirectUri),
     details = await oauth.describeConsent(parsed),
     transaction = await oauth.beginConsent(parsed);
-  const agents = await db(c.env)
-    .prepare("SELECT * FROM agents WHERE owner_id=? AND status<>'revoked' ORDER BY created_at DESC")
-    .bind(user.id)
-    .all<AgentRow>();
-  const eligible = agents.results.filter((a) => !platform || a.platform === platform);
-  const agentStates: Record<string, string> = {
-    awaiting_connection: '待连接',
-    awaiting_endpoint: '待端点安装',
-    awaiting_claim: '待主人认领',
-    awaiting_confirmation: '待端点确认',
-    active: '已连接',
-  };
-  const choices = eligible
-    .map(
-      (a) =>
-        `<option value="${escape(a.id)}">${escape(a.label)} · ${escape(a.platform)} · ${escape(agentStates[a.status] ?? a.status)} · ID ${escape(a.id.slice(0, 8))}${a.fingerprint ? ` · 指纹 ${escape(a.fingerprint.slice(0, 8))}…${escape(a.fingerprint.slice(-6))}` : ''}</option>`,
-    )
-    .join('');
-  const scopeFields = Object.values(scopes)
-    .map(
-      (scope) =>
-        `<label class="scope"><input type="checkbox" name="scope" value="${scope}" checked><span>${escape(scopeLabels[scope])}</span></label>`,
-    )
-    .join('');
+  const service = chatService(c.env);
+  const eligible = (await service.agentsOf(user.id)).filter(
+    (a) => a.status === 'active' && (!platform || a.platform === platform),
+  );
+  // With an existing same-platform Agent the owner must choose explicitly; never default to a
+  // binding, so one connection cannot silently take over another Agent's identity.
+  const choice = eligible.length
+    ? `<fieldset><legend>连接到哪个 Agent</legend>${eligible
+        .map(
+          (a) =>
+            `<label class="scope"><input type="radio" name="agentId" value="${escape(a.id)}" required><span>重新连接「${escape(a.label)}」· ${escape(platformNames[a.platform])} · ID ${escape(a.id.slice(0, 8))}</span></label>`,
+        )
+        .join(
+          '',
+        )}<label class="scope"><input type="radio" name="agentId" value="new" required><span>新建一个 Agent</span></label></fieldset>`
+    : '<input type="hidden" name="agentId" value="new">';
+  const platformField = platform
+    ? `<input type="hidden" name="platform" value="${platform}">`
+    : `<label>平台（本地测试）<select name="platform">${(['dot', 'muse', 'duet'] as const)
+        .map((p) => `<option value="${p}">${platformNames[p]}</option>`)
+        .join('')}</select></label>`;
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权连接 · Agent Hub</title><link rel="stylesheet" href="/consent.css"><script src="/consent.js" defer></script></head><body>
-    <main><a class="brand" href="/">AGENT HUB</a><p class="eyebrow">连接授权</p><h1>把你的 Agent<br>安全连接起来。</h1>
-    <p>当前主人：<strong>${escape(user.display_name)}</strong>（${escape(user.handle)}）</p>
-    <div class="client"><strong>${escape(details.clientName)}</strong><p>${details.clientDomain ? `客户端声明发布于 ${escape(details.clientDomain)}` : '客户端名称由申请方提供，不能单独证明厂商身份。'}</p><p>授权将返回 <strong>${escape(details.redirectHost)}</strong>。${details.redirectIsLoopback ? '这是你电脑上的本地测试客户端。' : ''}</p></div>
+    <main><a class="brand" href="/">AGENT HUB</a><p class="eyebrow">连接授权</p><h1>把你的 Agent<br>连接到 Agent Hub。</h1>
+    <p>当前主人：<strong>${escape(user.display_name)}</strong></p>
+    <div class="client"><strong>${escape(details.clientName)}</strong><p>${details.clientDomain ? `客户端声明发布于 ${escape(details.clientDomain)}` : '客户端名称由申请方提供，不能证明厂商身份。'}</p><p>授权将返回 <strong>${escape(details.redirectHost)}</strong>。${details.redirectIsLoopback ? '这是你电脑上的本地测试客户端。' : ''}</p></div>
     <form method="post" action="/authorize" data-callback-origin="${escape(new URL(parsed.redirectUri).origin)}" data-callback-path="${escape(new URL(parsed.redirectUri).pathname)}"><input type="hidden" name="handle" value="${escape(transaction.handle)}"><input type="hidden" name="csrf" value="${escape(getCookie(c, 'agent-hub-csrf') ?? '')}">
-    <label>绑定到哪个 Agent<select name="agentId" required>${eligible.length ? '<option value="" disabled selected>请选择原连接或创建新连接</option>' : ''}<option value="new">创建新连接</option>${choices}</select></label>
-    <p class="note">重新连接时，请选择原来已认领的连接，并核对 ID 和指纹。选择“创建新连接”会生成另一个身份，不能使用原端点的密钥。</p>
-    <div class="new-agent"><label>平台<select name="platform">${(platform ? [platform] : ['dot', 'muse']).map((p) => `<option value="${p}">${p === 'dot' ? 'Dot' : 'Muse'}</option>`).join('')}</select></label><label>新连接名称<input name="label" maxlength="60" value="${escape(`${user.display_name} 的 ${platform === 'muse' ? 'Muse' : 'Dot'}`)}" required></label></div>
-    <fieldset><legend>允许这个连接</legend>${scopeFields}</fieldset><p class="note">这一步不允许 Agent 代替你认领密钥、批准配对或批准会话。聊天仍需要两位主人对具体对象、期限和额度分别授权。</p>
+    ${choice}${platformField}
+    <p class="note">连接后，这个 Agent 可以查看你的聊天、收取消息，并发送消息。默认每条外发都要你审核；它不能加好友、批准聊天或修改任何设置。</p>
     <p role="alert" id="consent-error" hidden></p><noscript>请启用 JavaScript 以安全完成授权跳转。</noscript>
-    <div class="actions"><button name="decision" value="deny" class="secondary" formnovalidate>拒绝</button><button name="decision" value="approve">同意并连接</button></div></form></main></body></html>`;
+    <div class="actions"><button name="decision" value="deny" class="secondary" formnovalidate>拒绝</button><button name="decision" value="approve">授权连接</button></div></form></main></body></html>`;
   transaction.headers.set('Content-Type', 'text/html; charset=utf-8');
   transaction.headers.set('Cache-Control', 'no-store');
   // Native form POSTs under no-referrer can carry Origin:null. Send only the
@@ -156,44 +146,31 @@ oauthRoutes.post('/authorize', async (c) => {
     existing === 'new' || z.uuid().safeParse(existing).success,
     'agent_selection_required',
     400,
-    '请选择原连接，或明确选择创建新连接',
+    '请选择要重新连接的 Agent，或明确选择新建',
   );
-  const selected = z
-    .array(z.enum([scopes.read, scopes.enroll, scopes.message]))
-    .min(1)
-    .parse(form.getAll('scope').map(String));
-  ensure(
-    selected.includes(scopes.read),
-    'read_scope_required',
-    400,
-    '连接至少需要读取自身状态的权限',
-  );
-  const approved = await oauth.approveConsent(c.req.raw, handle, { scope: selected });
+  const granted = [scopes.read, scopes.message];
+  const approved = await oauth.approveConsent(c.req.raw, handle, { scope: granted });
   ensure(
     permittedRedirect(approved.request.redirectUri, c.env),
     'unsupported_client',
     400,
     '不支持这个客户端',
   );
-  const h = new Hub(db(c.env), c.env.PUBLIC_ORIGIN),
+  const service = chatService(c.env),
     declared = platformSchema.parse(form.get('platform')),
     native = clientPlatform(approved.request.redirectUri);
   ensure(!native || native === declared, 'platform_mismatch', 400, '所选平台与授权回调不一致');
   const agent =
     existing === 'new'
-      ? await h.createAgent(
-          user.id,
-          declared,
-          z.string().trim().min(1).max(60).parse(form.get('label')),
-        )
-      : await h.agent(z.uuid().parse(existing), user.id);
+      ? await service.createAgent(user.id, declared)
+      : await service.ownAgent(user.id, existing);
   ensure(agent.platform === declared, 'platform_mismatch', 400, '连接平台不匹配');
-  const connected = await h.authorizeConnection(user.id, agent.id);
+  const connected = await service.onAuthorized(user.id, agent.id, approved.request.clientId);
   const { redirectTo } = await oauth.completeAuthorization({
     request: approved.request,
     userId: agent.id,
     metadata: { agent_id: agent.id, platform: agent.platform },
-    scope: selected,
+    scope: granted,
     props: {
       ownerId: user.id,
       agentId: agent.id,
@@ -221,13 +198,6 @@ export function provider(
   return new OAuthProvider<HubBindings>(providerOptions(env, defaultHandler));
 }
 
-export function oauthApi(env: Env) {
-  return getOAuthApi(
-    providerOptions(env, { fetch: () => new Response(null, { status: 404 }) }),
-    env as HubBindings,
-  );
-}
-
 function providerOptions(
   env: Env,
   defaultHandler: ExportedHandler<HubBindings>,
@@ -243,7 +213,7 @@ function providerOptions(
     authorizeEndpoint: '/authorize',
     tokenEndpoint: '/oauth/token',
     clientRegistrationEndpoint: '/oauth/register',
-    scopesSupported: [scopes.read, scopes.enroll, scopes.message, 'offline_access'],
+    scopesSupported: [scopes.read, scopes.message, 'offline_access'],
     requiredScopes: [scopes.read],
     resourceMetadata: { resource: `${issuer}/mcp`, authorization_servers: [issuer] },
     clientIdMetadataDocumentEnabled: true,
@@ -261,7 +231,7 @@ function providerOptions(
         return {
           code: 'invalid_redirect_uri',
           description:
-            'This alpha only supports verified Dot/Muse callbacks (and loopback in local development).',
+            'Only verified Dot/Muse callbacks are supported so far (and loopback in local development). Duet callbacks are added after a real connection is observed.',
         };
     },
     tokenExchangeCallback: async (options) => {
@@ -270,7 +240,7 @@ function providerOptions(
         throw new OAuthError('invalid_grant', { description: 'Connection metadata is invalid' });
       const a = await db(options.env)
         .prepare(
-          "SELECT a.id FROM agents a JOIN users u ON u.id=a.owner_id WHERE a.id=? AND a.owner_id=? AND a.auth_version=? AND a.status<>'revoked' AND u.disabled_at IS NULL",
+          "SELECT a.id FROM agents a JOIN users u ON u.id=a.owner_id WHERE a.id=? AND a.owner_id=? AND a.auth_version=? AND a.status='active' AND u.disabled_at IS NULL",
         )
         .bind(parsed.data.agentId, parsed.data.ownerId, parsed.data.authVersion)
         .first();
