@@ -77,6 +77,7 @@ interface MessageRow {
   sent_at: number;
   expires_at: number;
   withheld_at: number | null;
+  withdrawn_at: number | null;
 }
 interface DraftRow {
   id: string;
@@ -487,13 +488,13 @@ export class ChatService {
       statements.push(
         audit(this.connection, 'contact_added', contactId, { owner: ownerId }, {}, at),
       );
-    // Consume atomically: a concurrent second acceptance changes nothing and is rejected below.
+    // Unconditional on purpose: the invite_single_use trigger aborts the whole batch when a
+    // concurrent acceptance or revocation got there first.
     const consume = this.sql(
-      'UPDATE contact_invites SET consumed_by=?,consumed_at=? WHERE token_hash=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>?',
+      'UPDATE contact_invites SET consumed_by=?,consumed_at=? WHERE token_hash=?',
       ownerId,
       at,
       invite.token_hash,
-      at,
     );
     statements.unshift(consume);
     let chatId: string | null = null;
@@ -520,8 +521,17 @@ export class ChatService {
       statements.push(...opened.statements);
     }
     statements.push(this.notify(invite.inviter_id, 'invite_accepted', contactId));
-    const results = await this.connection.batch(statements);
-    ensure(results[0].meta.changes === 1, 'invite_unavailable', 410, '邀请链接已被使用');
+    try {
+      await this.connection.batch(statements);
+    } catch (error) {
+      ensure(
+        !String(error).includes('invite_spent'),
+        'invite_unavailable',
+        410,
+        '邀请链接已被使用',
+      );
+      throw error;
+    }
     contact = await this.contactBetween(ownerId, invite.inviter_id);
     return { contact_id: contact!.id, chat_id: chatId };
   }
@@ -1317,10 +1327,12 @@ export class ChatService {
       409,
       '对方 Agent 已取走，无法撤回',
     );
+    const at = this.now();
     await this.connection.batch([
       this.sql(
-        'UPDATE messages SET withheld_at=? WHERE id=? AND withheld_at IS NULL',
-        this.now(),
+        'UPDATE messages SET withheld_at=?,withdrawn_at=? WHERE id=? AND withheld_at IS NULL',
+        at,
+        at,
         messageId,
       ),
       audit(this.connection, 'message_withdrawn', messageId, { owner: ownerId }),
@@ -1431,14 +1443,19 @@ export class ChatService {
     };
   }
 
-  /** Replay without advancing progress: only what this Agent already took, plus its own sends. */
+  /**
+   * Replay without advancing progress: only what this Agent already took, plus its own sends.
+   * Taking moves progress past withheld messages without delivering them, so progress alone
+   * does not prove delivery.
+   */
   async history(agentId: string, chatId: string, afterSeq: number, limit = 50) {
     const loaded = await this.load(chatId),
       side = loaded.sides.find((s) => s.agent_id === agentId);
     if (!side) throw notFound();
     const rows = (
       await this.sql(
-        `SELECT * FROM messages WHERE chat_id=? AND seq>? AND expires_at>? AND (seq<=? OR sender_agent_id=?)
+        `SELECT * FROM messages WHERE chat_id=? AND seq>? AND expires_at>?
+          AND ((seq<=? AND withheld_at IS NULL) OR sender_agent_id=?)
           ORDER BY seq LIMIT ?`,
         chatId,
         afterSeq,
@@ -1596,7 +1613,8 @@ export class ChatService {
                 ? '我'
                 : '对方主人',
           mine,
-          text: this.decrypt(m),
+          // Withdrawn text stays visible only to the side that sent it.
+          text: m.withdrawn_at && !mine ? null : this.decrypt(m),
           sent_at: m.sent_at,
           // "Taken" only means an Agent fetched it; the Hub cannot know it was read.
           taken: recipients.every((s) => s.delivered_seq >= m.seq),

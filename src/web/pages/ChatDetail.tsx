@@ -208,11 +208,11 @@ export function ChatDetail({
               key={m.id}
               className={`message ${m.mine ? 'mine' : ''} ${m.sender_kind === 'owner' ? 'owner' : ''} ${m.withheld ? 'withheld' : ''}`}
             >
-              {m.text}
+              {m.text ?? '这条消息已撤回，内容不可见'}
               <small>
                 {m.sender_label}
                 {m.sender_kind === 'owner' ? '（主人）' : ''} · {when(m.sent_at)} ·{' '}
-                {m.withheld ? '已扣下' : m.taken ? '已取走' : '已保存'}
+                {m.text === null ? '已撤回' : m.withheld ? '已扣下' : m.taken ? '已取走' : '已保存'}
                 {m.mine && !m.taken && !m.withheld && (
                   <button
                     className="text-button"

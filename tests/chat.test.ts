@@ -270,6 +270,78 @@ describe('chat lifecycle scenarios', () => {
     });
   });
 
+  it('17: a withdrawn message never reaches the peer Agent through history replay', async () => {
+    const f = await friends();
+    const sent = await f.chats.ownerSend(f.alice.id, f.chatId, 'WITHDRAWN-SECRET');
+    await f.chats.withdraw(f.alice.id, sent.message_id);
+    await f.chats.inboxTake(f.b.id);
+    expect((await f.chats.history(f.b.id, f.chatId, 0)).messages).toHaveLength(0);
+  });
+
+  it('17: an Agent can still replay its own withdrawn send', async () => {
+    const f = await friends();
+    await f.chats.setWindow(f.alice.id, f.chatId, 10, undefined, 5);
+    const sent = await f.chats.agentSend(f.a.id, {
+      chat_id: f.chatId,
+      text: '我自己发的',
+      idempotency_key: key(),
+    });
+    await f.chats.withdraw(f.alice.id, sent.message_id!);
+    await f.chats.inboxTake(f.b.id);
+    expect((await f.chats.history(f.b.id, f.chatId, 0)).messages).toHaveLength(0);
+    expect((await f.chats.history(f.a.id, f.chatId, 0)).messages.map((m) => m.text)).toEqual([
+      '我自己发的',
+    ]);
+  });
+
+  it('15: text withheld when a chat closes stays hidden from replay after it reopens', async () => {
+    const f = await friends();
+    await f.chats.setWindow(f.alice.id, f.chatId, 10, undefined, 5);
+    await f.chats.agentSend(f.a.id, {
+      chat_id: f.chatId,
+      text: 'WITHHELD-ON-CLOSE',
+      idempotency_key: key(),
+    });
+    await f.chats.closeChat(f.alice.id, f.chatId);
+    const invite = await f.chats.createInvite(f.alice.id, f.a.id);
+    await f.chats.acceptInvite(f.bob.id, new URL(invite.url).hash.slice(1), f.b.id);
+    expect((await f.chats.inboxTake(f.b.id)).messages).toHaveLength(0);
+    expect((await f.chats.history(f.b.id, f.chatId, 0)).messages).toHaveLength(0);
+  });
+
+  it('17: only the sending side keeps seeing withheld text in the owner view', async () => {
+    const f = await friends();
+    const sent = await f.chats.ownerSend(f.alice.id, f.chatId, 'WITHDRAWN-TEXT');
+    await f.chats.withdraw(f.alice.id, sent.message_id);
+    const peer = await f.chats.ownerChat(f.bob.id, f.chatId);
+    expect(peer.messages[0]).toMatchObject({ text: null, withheld: true });
+    const mine = await f.chats.ownerChat(f.alice.id, f.chatId);
+    expect(mine.messages[0]).toMatchObject({ text: 'WITHDRAWN-TEXT', withheld: true });
+  });
+
+  it('2: the loser of an acceptance race is rejected and leaves nothing behind', async () => {
+    const s = service();
+    const alice = await seedOwner('A'),
+      bob = await seedOwner('B'),
+      carol = await seedOwner('C');
+    const a = await connectedAgent(s.chats, alice),
+      b = await connectedAgent(s.chats, bob, 'muse'),
+      c = await connectedAgent(s.chats, carol, 'duet');
+    const invite = await s.chats.createInvite(alice.id, a.id);
+    const token = new URL(invite.url).hash.slice(1);
+    // Carol's request passed the "still usable" check just before Bob's acceptance committed.
+    const racing = s.chats as unknown as { usableInvite(token: string): Promise<unknown> };
+    const checked = await racing.usableInvite(token);
+    await s.chats.acceptInvite(bob.id, token, b.id);
+    racing.usableInvite = async () => checked;
+    await expect(s.chats.acceptInvite(carol.id, token, c.id)).rejects.toMatchObject({
+      code: 'invite_unavailable',
+    });
+    expect((await s.chats.contacts(carol.id)).length).toBe(0);
+    expect((await s.chats.contacts(alice.id)).length).toBe(1);
+    expect((await s.chats.agentChats(c.id)).chats).toHaveLength(0);
+  });
+
   it('18, 19: removing exposure closes the chat; unexposed Agents look missing', async () => {
     const f = await friends();
     await f.chats.setExposure(f.alice.id, f.contactId, []);
