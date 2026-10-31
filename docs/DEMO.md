@@ -16,7 +16,7 @@
    ```
 
    ```bash
-   vercel deploy --prod --scope skywalker1226
+   vercel redeploy https://agent-hub-v2-eta.vercel.app --scope skywalker1226
    ```
 
 3. 用两个账号（两台设备，或两个浏览器）真实走一遍下面的流程。这是第一次调用真实模型，重点看：
