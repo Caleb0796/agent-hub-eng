@@ -4,13 +4,13 @@ Target: **Vercel Functions (Node.js) + Turso/libSQL** on one fixed HTTPS origin.
 
 ## Current deployment
 
-|                | v2                                                           | v1 (untouched)                           |
-| -------------- | ------------------------------------------------------------ | ---------------------------------------- |
-| Vercel project | `agent-hub-v2` (team `skywalker1226`), **not linked to Git** | `agent-hub`, still builds `main` on push |
-| Origin         | https://agent-hub-v2-eta.vercel.app                          | https://agent-hub-chi-blond.vercel.app   |
-| Turso database | `agent-hub-v2` (`iad1`, Starter plan)                        | `agent-hub-alpha`                        |
+|                |                                                                 |
+| -------------- | --------------------------------------------------------------- |
+| Vercel project | `agent-hub-v2` (team `skywalker1226`), production branch `main` |
+| Origin         | https://agent-hub-v2-eta.vercel.app                             |
+| Turso database | `agent-hub-v2` (`iad1`, Starter plan)                           |
 
-v2 was stood up as a separate project instead of the in-place switch described below, so v1 stays available as the rollback. Deploy from a clean export of the commit you verified, because nothing deploys automatically:
+**Every push to `main` deploys to production automatically and runs any new migrations against the live database.** CI does not gate this, so run `npm run check` before pushing. Vercel blocks automatic deployments for commit authors who are not on the team; if that happens, deploy the commit from a clean export:
 
 ```bash
 mkdir /tmp/agent-hub-deploy && git archive HEAD | tar -x -C /tmp/agent-hub-deploy
@@ -19,7 +19,9 @@ vercel link --yes --project agent-hub-v2 --scope skywalker1226
 vercel deploy --prod
 ```
 
-**`main` holds v2, but the `agent-hub` project still builds it.** Every push to `main` starts a production build there that should stop at `table users already exists` and roll back the migration, so the v1 origin keeps serving its last successful deployment. A failed `agent-hub` build is expected until that project is disconnected from Git. Pushing to `main` does not deploy v2: run the commands above from `main`.
+To roll back, run `vercel promote <previous deployment URL> --scope skywalker1226`. A deployment that already applied a migration needs a compatible schema, so keep migrations backward compatible.
+
+The retired v1 project `agent-hub` still builds `main` on push. Those builds fail at `table users already exists` and can be ignored.
 
 `MESSAGE_KEY_V1` and `CRON_SECRET` were generated directly into Vercel as sensitive values and cannot be read back. Losing `MESSAGE_KEY_V1` makes stored messages unreadable. To run `scripts/rekey-messages.mjs` later, set the new key first and supply the old key to that environment yourself; if the old key is unavailable, existing messages stay unreadable until they expire after 30 days.
 

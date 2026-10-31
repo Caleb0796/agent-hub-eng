@@ -35,7 +35,7 @@ npm run test:http                             # needs a prior build
 
 ## Database and deployment
 
-Schema baseline is `migrations/0100_chat_core.sql` (v1 used `0001`–`0005`). `scripts/migrate-deploy.mjs` migrates whatever database is attached on production builds, so v2 must only be deployed against a new empty database — follow the switch order in `docs/DEPLOYMENT.md`. Add schema changes as new numbered migrations after `0100`.
+Schema baseline is `migrations/0100_chat_core.sql` (v1 used `0001`–`0005`). Every push to `main` deploys to production automatically (`docs/DEPLOYMENT.md`), and `scripts/migrate-deploy.mjs` applies new migrations to the live database during that build, so run `npm run check` first and keep migrations backward compatible. Add schema changes as new numbered migrations after `0100`.
 
 ## Constraints
 
