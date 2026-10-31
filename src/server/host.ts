@@ -46,7 +46,9 @@ export function runtimeFromEnvironment(waitUntil?: (promise: Promise<unknown>) =
   if (!['open', 'closed'].includes(SIGNUP_MODE))
     throw new Error('SIGNUP_MODE must be open or closed');
   const MESSAGE_KEYS = messageKeysFrom(process.env);
-  if (!MESSAGE_KEYS[1]) throw new Error('MESSAGE_KEY_V1 is required');
+  // Any version will do: after a rotation and rekey the old MESSAGE_KEY_V1 is removed.
+  if (!Object.keys(MESSAGE_KEYS).length)
+    throw new Error('At least one MESSAGE_KEY_V<n> is required');
   const client = databaseClient(url, token);
   return createRuntime(
     client,

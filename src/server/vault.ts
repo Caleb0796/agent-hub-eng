@@ -16,7 +16,7 @@ export class Vault {
       if (key.length !== 32) throw new Error(`MESSAGE_KEY_V${version} must be 32 bytes`);
       this.keys.set(Number(version), key);
     }
-    if (!this.keys.size) throw new Error('MESSAGE_KEY_V1 is required');
+    if (!this.keys.size) throw new Error('At least one MESSAGE_KEY_V<n> is required');
     this.current = Math.max(...this.keys.keys());
   }
 

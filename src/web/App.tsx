@@ -27,6 +27,7 @@ const notificationText: Record<string, string> = {
   chat_request: '收到新的聊天请求',
   chat_approved: '对方同意了你的聊天请求',
   connection_changed: '有好友的 Agent 连接已变更，自动窗口已重置',
+  window_opened: '好友打开了自动窗口，你可以决定是否也打开',
   review: '你的 Agent 有新消息待审核',
   dlp_hold: '你的 Agent 想发出疑似密钥的内容，已扣留',
 };
@@ -75,7 +76,7 @@ export function App() {
     } catch (e) {
       if (e instanceof ApiError && e.code === 'reauthentication_required') {
         navigate(
-          `/login?returnTo=${encodeURIComponent(location.pathname + location.search + location.hash)}`,
+          `/login?reauth=1&returnTo=${encodeURIComponent(location.pathname + location.search + location.hash)}`,
         );
         return;
       }
@@ -97,6 +98,7 @@ export function App() {
   if (!owner || path === '/login')
     return (
       <Auth
+        signedIn={!!owner}
         onLogin={(value) => {
           setOwner(value);
           if (path === '/login') navigate('/');
@@ -207,7 +209,13 @@ export function App() {
           {!data ? (
             <div className="skeleton" />
           ) : section === 'chats' && path.startsWith('/chats/') ? (
-            <ChatDetail id={path.split('/')[2]} run={run} busy={busy} version={data} />
+            <ChatDetail
+              key={path.split('/')[2]}
+              id={path.split('/')[2]}
+              run={run}
+              busy={busy}
+              version={data}
+            />
           ) : section === 'review' ? (
             <ReviewPage run={run} busy={busy} version={data} />
           ) : section === 'contacts' ? (

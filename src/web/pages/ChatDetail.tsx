@@ -27,7 +27,10 @@ export function ChatDetail({
   const load = useCallback(
     () =>
       api<ChatView>(`/api/chats/${id}`)
-        .then(setChat)
+        .then((v) => {
+          setChat(v);
+          setError('');
+        })
         .catch((e: Error) => setError(e.message)),
     [id],
   );
@@ -39,7 +42,8 @@ export function ChatDetail({
       await api(path, 'POST', body);
       await load();
     });
-  if (error) return <div className="error">{error}</div>;
+  // After a failed refresh keep showing the last loaded chat, with the error above it.
+  if (error && !chat) return <div className="error">{error}</div>;
   if (!chat) return <div className="skeleton" />;
   const mineSides = chat.sides.filter((s) => s.mine),
     peer = chat.sides.find((s) => !s.mine) ?? chat.sides[1],
@@ -50,6 +54,11 @@ export function ChatDetail({
       <button className="text-button back" onClick={() => navigate('/')}>
         ← 返回聊天
       </button>
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
       <div className="page-heading">
         <div className="title-with-icon">
           <PlatformMark platform={peer.platform} />
@@ -213,7 +222,7 @@ export function ChatDetail({
                 {m.sender_label}
                 {m.sender_kind === 'owner' ? '（主人）' : ''} · {when(m.sent_at)} ·{' '}
                 {m.text === null ? '已撤回' : m.withheld ? '已扣下' : m.taken ? '已取走' : '已保存'}
-                {m.mine && !m.taken && !m.withheld && (
+                {m.can_withdraw && (
                   <button
                     className="text-button"
                     disabled={busy}
