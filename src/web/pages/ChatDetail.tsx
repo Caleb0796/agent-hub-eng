@@ -5,7 +5,7 @@ import { Composer, type ComposerHandle, type Person } from '../chat/Composer';
 import { DraftRow, MessageRow, ReportRow } from '../chat/MessageRow';
 import { ChatSettings } from '../chat/Settings';
 import { ChatTasks } from '../chat/Tasks';
-import { usePoll } from '../poll';
+import { usePoll, useWatch } from '../poll';
 import type { ChatView, Run } from '../types';
 import { Avatar, day, runErrorText, when } from '../ui';
 
@@ -49,7 +49,10 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
       ),
     [id],
   );
-  usePoll(load, 3000);
+  // The watch brings changes at once; this slow poll keeps "last active" honest and is the
+  // fallback if the watch ever stops getting through.
+  useWatch(`/api/chats/${id}/watch`, load);
+  usePoll(load, 20000);
   const act = useCallback(
     (path: string, body?: unknown) =>
       void run(async () => {

@@ -293,3 +293,45 @@ describe('parseDecision with reports', () => {
     expect(parseDecision('{"reply":"好"}')).toEqual({ reply: '好', report: null, needs_owner: false });
   });
 });
+
+describe('watching a chat for changes', () => {
+  it('answers at once when the chat differs from what the page has', async () => {
+    const f = await friends();
+    const first = await f.chats.watchChat(f.alice.id, f.chatId);
+    expect((await f.chats.watchChat(f.alice.id, f.chatId, first.v)).v).toBe(first.v);
+    for (const change of [
+      () => f.chats.ownerSend(f.bob.id, f.chatId, '周五行吗'),
+      () => f.chats.inboxTake(f.a.id),
+      () => f.chats.addGrant(f.alice.id, { chatId: f.chatId, text: '约周五' }),
+      () =>
+        f.chats.agentReport(f.a.id, {
+          chat_id: f.chatId,
+          text: '约好了',
+          idempotency_key: `key-${crypto.randomUUID()}`,
+        }),
+      () => f.chats.pause(f.bob.id, f.chatId),
+    ]) {
+      const before = (await f.chats.watchChat(f.alice.id, f.chatId)).v;
+      await change();
+      expect((await f.chats.watchChat(f.alice.id, f.chatId, before)).v).not.toBe(before);
+    }
+  });
+
+  it('does not change for the other owner when my private things change', async () => {
+    const f = await friends();
+    const before = (await f.chats.watchChat(f.bob.id, f.chatId)).v;
+    await f.chats.addGrant(f.alice.id, { chatId: f.chatId, text: '约周五' });
+    expect((await f.chats.watchChat(f.bob.id, f.chatId, before)).v).toBe(before);
+  });
+
+  it('is only for people in the chat', async () => {
+    const f = await friends();
+    const stranger = await seedOwner('Mallory');
+    await expect(f.chats.watchChat(stranger.id, f.chatId)).rejects.toMatchObject({ status: 404 });
+    const open = await ownerCall<{ v: string }>(f.alice, 'GET', `/api/chats/${f.chatId}/watch`);
+    expect(open.status).toBe(200);
+    expect(typeof open.body.v).toBe('string');
+    const denied = await ownerCall(stranger, 'GET', `/api/chats/${f.chatId}/watch?v=x`);
+    expect(denied.status).toBe(404);
+  });
+});

@@ -1,4 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { api } from './api';
+
+const WATCH_RETRY_MS = 3000;
 
 /**
  * Runs `task` now and then every `ms` after the previous run finishes, so slow responses never
@@ -29,4 +32,43 @@ export function usePoll(task: () => Promise<unknown>, ms: number, enabled = true
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [ms, enabled]);
+}
+
+/**
+ * Asks the server to answer when `url` has a new version, then calls `onChange`. Requests stay
+ * open while nothing happens, so changes show up at once. A hidden tab stops asking.
+ */
+export function useWatch(url: string, onChange: () => Promise<unknown>): void {
+  const latest = useRef(onChange);
+  latest.current = onChange;
+  useEffect(() => {
+    let stopped = false,
+      version = '',
+      running = false;
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const loop = async () => {
+      if (running) return;
+      running = true;
+      while (!stopped && !document.hidden) {
+        try {
+          const next = await api<{ v: string }>(`${url}?v=${encodeURIComponent(version)}`);
+          if (stopped) break;
+          if (next.v !== version) {
+            if (version) await latest.current().catch(() => undefined);
+            version = next.v;
+          }
+        } catch {
+          await pause(WATCH_RETRY_MS);
+        }
+      }
+      running = false;
+    };
+    const onVisible = () => void loop();
+    document.addEventListener('visibilitychange', onVisible);
+    void loop();
+    return () => {
+      stopped = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [url]);
 }

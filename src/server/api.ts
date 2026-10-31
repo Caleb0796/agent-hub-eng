@@ -113,6 +113,9 @@ router.get('/chats/:id', async (c) => {
   wakeChat(c.env, service, view.id);
   return c.json(view);
 });
+router.get('/chats/:id/watch', async (c) =>
+  c.json(await chats(c).watchChat((await owner(c)).id, id(c), c.req.query('v'))),
+);
 router.post('/chats/:id/approve', async (c) =>
   c.json(await chats(c).approveChat((await write(c)).id, id(c))),
 );

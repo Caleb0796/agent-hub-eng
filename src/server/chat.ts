@@ -2223,6 +2223,34 @@ export class ChatService {
     };
   }
 
+  /**
+   * Waits until the chat differs from version `since`, so a page can update as soon as something
+   * happens. One cheap query per second, in place of reading the whole chat every few seconds.
+   */
+  async watchChat(ownerId: string, chatId: string, since?: string, waitMs = this.inboxWaitMs) {
+    await this.ownerLoad(ownerId, chatId, 'read');
+    const deadline = Date.now() + waitMs;
+    while (true) {
+      const row = await this.sql(
+        `SELECT c.status AS status,
+          (SELECT COALESCE(MAX(seq),0)||'/'||COUNT(withheld_at) FROM messages WHERE chat_id=c.id) AS messages,
+          (SELECT GROUP_CONCAT(s.delivered_seq||'/'||COALESCE(s.paused_at,'')||'/'||s.review_required||'/'||COALESCE(a.run_lease_until,'')||'/'||COALESCE(a.run_error,'')||'/'||a.status)
+            FROM chat_sides s JOIN agents a ON a.id=s.agent_id WHERE s.chat_id=c.id) AS sides,
+          (SELECT COUNT(*) FROM drafts d JOIN agents a ON a.id=d.agent_id WHERE d.chat_id=c.id AND a.owner_id=? AND d.status='pending') AS drafts,
+          (SELECT COUNT(*)||'/'||COALESCE(MAX(created_at),0) FROM agent_grants g WHERE g.chat_id=c.id AND g.owner_id=?) AS grants,
+          (SELECT COUNT(*)||'/'||COUNT(read_at) FROM agent_reports r WHERE r.chat_id=c.id AND r.owner_id=?) AS reports
+          FROM chats c WHERE c.id=?`,
+        ownerId,
+        ownerId,
+        ownerId,
+        chatId,
+      ).first<Record<string, string | number>>();
+      const v = await sha256(JSON.stringify(row));
+      if (v !== since || Date.now() >= deadline) return { v };
+      await sleep(Math.min(this.pollMs, Math.max(0, deadline - Date.now())));
+    }
+  }
+
   async reviewQueue(ownerId: string) {
     const rows = (
       await this.sql(
