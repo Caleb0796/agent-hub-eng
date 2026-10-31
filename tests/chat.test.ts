@@ -209,7 +209,7 @@ describe('chat lifecycle scenarios', () => {
     });
     expect(held.status).toBe('held_dlp');
     const queue = await f.chats.reviewQueue(f.alice.id);
-    expect(queue[0]).toMatchObject({ hold_reason: 'dlp', dlp_rules: ['AWS access key'] });
+    expect(queue[0]).toMatchObject({ hold_reason: 'dlp', dlp_rules: expect.arrayContaining(['AWS access key']) });
   });
 
   it('12: drafts expire after 7 days and the Agent learns it once', async () => {

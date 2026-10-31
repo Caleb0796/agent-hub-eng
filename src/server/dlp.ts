@@ -20,6 +20,11 @@ const rules: Array<[string, RegExp]> = [
     'password assignment',
     /(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)["']?\s*[:=]\s*["']?[^\s"']{8,}/i,
   ],
+  // Needs a value after the word, so talking about passwords in Chinese stays untouched.
+  [
+    '中文密码或验证码',
+    /(?:密码|口令|密钥|验证码)\s*(?:是|为|:|：|=)?\s*[A-Za-z0-9!@#$%^&*_+=.-]{4,}/,
+  ],
   [
     'literal secret value',
     /"(?:access_token|refresh_token|client_secret|password)"\s*:\s*"[A-Za-z0-9_\/=+.-]{20,}"/i,

@@ -98,7 +98,7 @@ export function parseDecision(raw: string) {
   };
 }
 
-function systemPrompt(work: Work): string {
+export function systemPrompt(work: Work): string {
   return `You are ${work.me.name}, the personal Agent of ${work.me.owner_name} on Agent Hub, a chat where people and their Agents work things out together. You act for ${work.me.owner_name}.
 
 Trust:
@@ -118,7 +118,7 @@ Telling your owner:
 Answer with one JSON object and nothing else: {"reply": "message to the chat, or null to stay silent", "report": "note to your owner, or null", "needs_owner": false}`;
 }
 
-function userPrompt(work: Work): string {
+export function userPrompt(work: Work): string {
   return JSON.stringify({
     participants: work.participants,
     owner_instructions: work.owner_instructions,

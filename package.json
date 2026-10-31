@@ -17,6 +17,7 @@
     "test:e2e:run": "node --import tsx tests/e2e.run.mjs",
     "test:e2e": "npm run build && npm run test:e2e:run",
     "check:secrets": "node scripts/check-secrets.mjs",
+    "eval:injection": "tsx --env-file=.env.local scripts/eval-injection.ts",
     "format": "prettier --write src tests scripts migrations public api *.ts *.json .github/workflows",
     "build:server": "node scripts/build-server.mjs",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",

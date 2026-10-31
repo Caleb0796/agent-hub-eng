@@ -13,5 +13,13 @@
     "types": ["vite/client", "node", "@cloudflare/workers-types"],
     "allowJs": true
   },
-  "include": ["src", "tests", "scripts/migrations.mjs", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "tests",
+    "evals",
+    "scripts/eval-injection.ts",
+    "scripts/migrations.mjs",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
 }
