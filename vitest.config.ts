@@ -4,10 +4,8 @@ import { readFile } from 'node:fs/promises';
 export default defineConfig({
   plugins: [
     {
-      name: 'endpoint-source',
+      name: 'oauth-provider-network-adapter',
       async load(id) {
-        if (id.endsWith('.py'))
-          return `export default ${JSON.stringify(await readFile(id, 'utf8'))}`;
         if (id.endsWith('/@cloudflare/workers-oauth-provider/dist/oauth-provider.js'))
           return `import { fetch, Cloudflare } from ${JSON.stringify(resolve('src/server/public-fetch.ts'))};\n${await readFile(id, 'utf8')}`;
       },

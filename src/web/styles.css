@@ -1852,3 +1852,79 @@ label small.error-text {
     scroll-behavior: auto !important;
   }
 }
+
+/* v2 chat */
+.platform.duet {
+  background: #ead9cf;
+  color: #9a5a3c;
+}
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 18px 0;
+}
+.message {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #f3f5ef;
+  border: 1px solid #e3e8dc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.message.mine {
+  align-self: flex-end;
+  background: #eaf1e2;
+}
+.message.owner {
+  border-color: #cdb98f;
+}
+.message.withheld {
+  opacity: 0.55;
+}
+.message small {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #8c9a87;
+}
+.draft {
+  border: 1px dashed #c9b37e;
+  background: #fbf7ec;
+}
+.composer {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.composer textarea {
+  flex: 1;
+  min-height: 64px;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #edf0e8;
+}
+.list-row > div:nth-child(2) {
+  flex: 1;
+}
+.count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #b5683f;
+  color: #fff;
+  font-size: 11px;
+  text-align: center;
+}

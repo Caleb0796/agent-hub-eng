@@ -1,61 +1,48 @@
 import { env, server } from './runtime';
 import { describe, it, expect } from 'vitest';
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/server';
-import { randomToken, sha256, signPayload } from '../src/shared/crypto';
-import { keyPair } from './helpers';
+import { randomToken, sha256 } from '../src/shared/crypto';
 import { Browser, authenticator } from './support/passkey-device';
 const makeBrowser = () => new Browser((input, init) => server.fetch(input, init));
 
+async function register(
+  browser: Browser,
+  device: Awaited<ReturnType<typeof authenticator>>,
+  name: string,
+) {
+  const options = await browser.post('/api/auth/register/options', { name });
+  expect(options.status).toBe(200);
+  const setup = await options.json<{ options: PublicKeyCredentialCreationOptionsJSON }>();
+  const verified = await browser.post('/api/auth/register/verify', {
+    response: device.register(setup.options.challenge),
+  });
+  return { setup, verified };
+}
+
 describe('passkey owner authentication', () => {
-  it('registers two distinct owners with real attestation verification and authenticates the original credential', async () => {
+  it('registers with only a name, rejects replay, and logs back in with the discoverable passkey', async () => {
     const browser = makeBrowser(),
-      device = await authenticator(),
-      signer = await keyPair(),
-      handle = 'owner' + crypto.randomUUID().slice(0, 8);
-    const options = await browser.post('/api/auth/register/options', {
-      handle,
-      name: 'First Owner',
-      signingKey: signer.publicKey,
-    });
-    expect(options.status).toBe(200);
-    const setup = await options.json<{
-      options: PublicKeyCredentialCreationOptionsJSON;
-      signingChallenge: { user_id: string };
-    }>();
-    expect(setup.options.extensions).toMatchObject({ prf: {} });
-    const payload = {
-      response: device.register(setup.options.challenge),
-      signingProof: await signPayload(signer.privateKey, setup.signingChallenge),
-    };
-    const verified = await browser.post('/api/auth/register/verify', payload);
+      device = await authenticator();
+    const { setup, verified } = await register(browser, device, '小林');
     expect(verified.status).toBe(201);
-    const first = await verified.json<{ owner: { id: string; signingKey: string } }>();
-    expect(first.owner.signingKey).toBe(signer.publicKey);
-    expect(first.owner.id).toBe(setup.signingChallenge.user_id);
-    expect((await browser.post('/api/auth/register/verify', payload)).status).toBe(400);
-    const secondBrowser = makeBrowser(),
-      otherDevice = await authenticator(),
-      otherSigner = await keyPair();
-    const secondOptions = await secondBrowser.post('/api/auth/register/options', {
-      handle: 'second' + crypto.randomUUID().slice(0, 8),
-      name: 'Second Owner',
-      signingKey: otherSigner.publicKey,
+    const first = await verified.json<{ owner: { id: string; name: string } }>();
+    expect(first.owner.name).toBe('小林');
+    expect(setup.options.authenticatorSelection?.residentKey).toBe('required');
+    const replay = await browser.post('/api/auth/register/verify', {
+      response: device.register(setup.options.challenge),
     });
-    const second = await secondOptions.json<{
-      options: PublicKeyCredentialCreationOptionsJSON;
-      signingChallenge: unknown;
-    }>();
-    const secondVerified = await secondBrowser.post('/api/auth/register/verify', {
-      response: otherDevice.register(second.options.challenge),
-      signingProof: await signPayload(otherSigner.privateKey, second.signingChallenge),
-    });
-    expect(secondVerified.status).toBe(201);
-    expect((await secondVerified.json<{ owner: { id: string } }>()).owner.id).not.toBe(
+    expect(replay.status).toBe(400);
+    const other = await register(makeBrowser(), await authenticator(), '小林');
+    // Names are not unique; identities are.
+    expect((await other.verified.json<{ owner: { id: string } }>()).owner.id).not.toBe(
       first.owner.id,
     );
     await browser.post('/api/auth/logout', {});
-    const loginOptions = await browser.post('/api/auth/login/options', {}),
-      login = await loginOptions.json<{ options: { challenge: string } }>();
+    const login = await (
+      await browser.post('/api/auth/login/options', {})
+    ).json<{
+      options: { challenge: string };
+    }>();
     const logged = await browser.post(
       '/api/auth/login/verify',
       await device.login(login.options.challenge, setup.options.user.id),
@@ -66,76 +53,76 @@ describe('passkey owner authentication', () => {
 
   it('refuses an otherwise valid authenticator response from the wrong origin', async () => {
     const browser = makeBrowser(),
-      device = await authenticator(),
-      signer = await keyPair();
+      device = await authenticator();
     const setup = await (
-      await browser.post('/api/auth/register/options', {
-        handle: 'origin' + crypto.randomUUID().slice(0, 8),
-        name: 'Origin Test',
-        signingKey: signer.publicKey,
-      })
-    ).json<{ options: { challenge: string }; signingChallenge: unknown }>();
+      await browser.post('/api/auth/register/options', { name: 'Origin' })
+    ).json<{
+      options: { challenge: string };
+    }>();
     const result = await browser.post('/api/auth/register/verify', {
       response: device.register(setup.options.challenge, 'https://evil.example'),
-      signingProof: await signPayload(signer.privateKey, setup.signingChallenge),
     });
     expect(result.status).toBe(400);
     expect((await result.json<{ error: string }>()).error).toBe('passkey_verification_failed');
   });
 
-  it('reports only whether a signup invitation is currently usable', async () => {
-    const browser = makeBrowser(),
-      at = Math.floor(Date.now() / 1000),
-      valid = randomToken(),
-      expired = randomToken(),
-      consumed = randomToken(),
-      owner = crypto.randomUUID();
-    await env.DB.prepare(
-      'INSERT INTO users(id,handle,display_name,signing_key,created_at) VALUES(?,?,?,?,?)',
-    )
-      .bind(owner, 'invited' + owner.slice(0, 8), 'Invited', (await keyPair()).publicKey, at)
-      .run();
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO signup_invites(token_hash,expires_at) VALUES(?,?)').bind(
-        await sha256(valid),
-        at + 3600,
-      ),
-      env.DB.prepare('INSERT INTO signup_invites(token_hash,expires_at) VALUES(?,?)').bind(
-        await sha256(expired),
-        at - 1,
-      ),
-      env.DB.prepare(
-        'INSERT INTO signup_invites(token_hash,expires_at,consumed_by) VALUES(?,?,?)',
-      ).bind(await sha256(consumed), at + 3600, owner),
-    ]);
-    const check = async (invite: string) => {
-      const response = await browser.post('/api/auth/invite/check', { invite });
-      expect(response.status).toBe(200);
-      return (await response.json<{ valid: boolean }>()).valid;
-    };
-    expect(await check(valid)).toBe(true);
-    expect(await check(expired)).toBe(false);
-    expect(await check(consumed)).toBe(false);
-    expect(await check(randomToken())).toBe(false);
-  });
-
-  it('refuses to bind an owner approval key without proof of possession', async () => {
+  it('adds a second passkey for a signed-in owner', async () => {
     const browser = makeBrowser(),
       device = await authenticator(),
-      signer = await keyPair(),
-      attacker = await keyPair();
-    const setup = await (
-      await browser.post('/api/auth/register/options', {
-        handle: 'proof' + crypto.randomUUID().slice(0, 8),
-        name: 'Proof Test',
-        signingKey: signer.publicKey,
-      })
-    ).json<{ options: { challenge: string }; signingChallenge: unknown }>();
-    const result = await browser.post('/api/auth/register/verify', {
-      response: device.register(setup.options.challenge),
-      signingProof: await signPayload(attacker.privateKey, setup.signingChallenge),
+      second = await authenticator();
+    const { verified } = await register(browser, device, 'Two devices');
+    const owner = (await verified.json<{ owner: { id: string } }>()).owner;
+    const options = await (
+      await browser.post('/api/auth/passkeys/options', {})
+    ).json<{
+      options: PublicKeyCredentialCreationOptionsJSON;
+    }>();
+    expect(options.options.excludeCredentials).toHaveLength(1);
+    const added = await browser.post('/api/auth/passkeys/verify', {
+      response: second.register(options.options.challenge),
     });
-    expect(result.status).toBe(400);
-    expect((await result.json<{ error: string }>()).error).toBe('invalid_signing_proof');
+    expect(added.status).toBe(200);
+    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id=?')
+      .bind(owner.id)
+      .first<{ n: number }>();
+    expect(count?.n).toBe(2);
+  });
+
+  it('recovers through a one-time operator link and invalidates old passkeys and sessions', async () => {
+    const browser = makeBrowser(),
+      lost = await authenticator(),
+      fresh = await authenticator();
+    const { setup, verified } = await register(browser, lost, 'Lost device');
+    const owner = (await verified.json<{ owner: { id: string } }>()).owner;
+    const token = randomToken(),
+      at = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      'INSERT INTO recovery_links(token_hash,user_id,created_at,expires_at) VALUES(?,?,?,?)',
+    )
+      .bind(await sha256(token), owner.id, at, at + 3600)
+      .run();
+    const recovering = makeBrowser();
+    const options = await (
+      await recovering.post('/api/auth/recover/options', { token })
+    ).json<{
+      options: { challenge: string };
+    }>();
+    const recovered = await recovering.post('/api/auth/recover/verify', {
+      response: fresh.register(options.options.challenge),
+    });
+    expect(recovered.status).toBe(200);
+    expect((await recovering.post('/api/auth/recover/options', { token })).status).toBe(410);
+    // The old browser session and the old passkey no longer work.
+    expect((await browser.post('/api/auth/logout', {})).status).toBe(401);
+    const login = await (
+      await browser.post('/api/auth/login/options', {})
+    ).json<{
+      options: { challenge: string };
+    }>();
+    const old = await browser.post(
+      '/api/auth/login/verify',
+      await lost.login(login.options.challenge, setup.options.user.id),
+    );
+    expect(old.status).toBe(401);
   });
 });

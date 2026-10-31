@@ -1,12 +1,12 @@
 import type { Client } from '@libsql/client';
-import handler, { cleanup, errorResponse, headers, nativeEvents } from './index';
+import handler, { cleanup, errorResponse, headers } from './index';
 import { boundedRequest, origin } from './common';
 import { Connection, OAuthStore } from './storage';
 import './env';
 
 export type RuntimeSettings = Pick<
   Env,
-  'PUBLIC_ORIGIN' | 'APP_ENV' | 'SIGNUP_MODE' | 'CRON_SECRET'
+  'PUBLIC_ORIGIN' | 'APP_ENV' | 'SIGNUP_MODE' | 'SIGNUP_DAILY_CAP' | 'MESSAGE_KEYS' | 'CRON_SECRET'
 >;
 
 export function createRuntime(
@@ -67,21 +67,6 @@ export function createRuntime(
     try {
       if (atomic) tx = await client.transaction('write');
       const response = await handler.fetch(request, tx ? bindings(new Connection(tx)) : env, ctx);
-      if (
-        !atomic &&
-        response.ok &&
-        (path === '/mcp' ||
-          path === '/api/dashboard' ||
-          (request.method === 'POST' && path.startsWith('/api/')))
-      ) {
-        ctx.waitUntil(
-          nativeEvents(env)
-            .flush()
-            .catch(() => {
-              console.error(JSON.stringify({ event: 'event_delivery_deferred' }));
-            }),
-        );
-      }
       if (tx) {
         await Promise.all(pending);
         if (response.status >= 500) await tx.rollback();

@@ -1,6 +1,6 @@
 {
   "name": "agent-hub",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,15 +13,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm test && npm run test:endpoint && npm run build && npm run test:e2e:run && npm run test:http && npm run check:secrets",
-    "test:endpoint": "node scripts/test-endpoint.mjs",
+    "check": "npm run typecheck && npm test && npm run build && npm run test:e2e:run && npm run test:http && npm run check:secrets",
     "test:e2e:run": "node --import tsx tests/e2e.run.mjs",
     "test:e2e": "npm run build && npm run test:e2e:run",
     "check:secrets": "node scripts/check-secrets.mjs",
     "format": "prettier --write src tests scripts migrations public api *.ts *.json .github/workflows",
     "build:server": "node scripts/build-server.mjs",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
-    "invite:create": "node --env-file=.env.local scripts/create-invite.mjs",
     "test:http": "node scripts/test-http.mjs"
   },
   "dependencies": {
@@ -35,7 +33,6 @@
     "lucide-react": "1.63.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "standardwebhooks": "1.1.1",
     "undici": "8.12.3",
     "zod": "4.6.7"
   },

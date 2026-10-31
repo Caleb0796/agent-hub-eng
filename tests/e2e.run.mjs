@@ -1,90 +1,68 @@
 import assert from 'node:assert/strict';
-import { readFile, writeFile, mkdir, mkdtemp, rm, readdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawnSync } from 'node:child_process';
 import { createClient } from '@libsql/client';
 import { createRuntime } from '../.output/runtime.mjs';
-import { Connection } from '../src/server/storage.ts';
 import { migrate } from '../scripts/migrations.mjs';
 import { Browser, authenticator } from './support/passkey-device.ts';
-import { base64url, randomToken, signPayload, fingerprint } from '../src/shared/crypto.ts';
+import { base64url, randomToken } from '../src/shared/crypto.ts';
 
-const root = resolve('.'),
-  base = 'http://localhost:8789',
+// Two independent owners, three platform identities, real passkeys (synthetic authenticators),
+// real OAuth (DCR + PKCE) and real HTTP: invite → chat → review → auto window → pause → reset.
+const base = 'http://localhost:8789',
   resource = `${base}/mcp`,
   callback = 'http://localhost:45678/callback';
 const temporary = await mkdtemp(join(tmpdir(), 'agent-hub-e2e-'));
-const python =
-  process.env.AGENT_HUB_PYTHON ??
-  (existsSync(join(root, '.venv/bin/python')) ? join(root, '.venv/bin/python') : 'python3');
 const client = createClient({ url: `file:${join(temporary, 'test.db')}` });
 const runtime = createRuntime(
   client,
-  { APP_ENV: 'test', PUBLIC_ORIGIN: base, SIGNUP_MODE: 'open' },
-  { fetch: async () => new Response('API test', { status: 404 }) },
+  {
+    APP_ENV: 'test',
+    PUBLIC_ORIGIN: base,
+    SIGNUP_MODE: 'open',
+    SIGNUP_DAILY_CAP: 200,
+    MESSAGE_KEYS: { 1: Buffer.alloc(32, 3).toString('base64url') },
+  },
+  { fetch: async () => new Response('E2E', { status: 404 }) },
 );
-const database = new Connection(client);
 const dispatch = runtime.fetch;
+const steps = [];
 
-function endpoint(state, command, input, expectFailure = false) {
-  const output = spawnSync(
-    python,
-    [join(root, 'endpoint/agent_hub.py'), '--state', state, command],
-    { input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 256 * 1024 },
-  );
-  if (expectFailure) {
-    assert.notEqual(output.status, 0, `Endpoint ${command} unexpectedly succeeded`);
-    return;
-  }
-  assert.equal(output.status, 0, `Endpoint ${command} failed: ${output.stderr}`);
-  return JSON.parse(output.stdout);
-}
 async function json(response, expected = 200) {
-  assert.equal(response.status, expected, `Unexpected HTTP status ${response.status}`);
+  assert.equal(
+    response.status,
+    expected,
+    `HTTP ${response.status}: ${await response.clone().text()}`,
+  );
   return response.json();
 }
+const cookies = (owner) => [...owner.browser.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
 async function ownerAccount(name) {
   const browser = new Browser((input, init) => dispatch(input, init)),
     device = await authenticator();
-  const signing = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-  const publicKey = base64url(
-    new Uint8Array(await crypto.subtle.exportKey('raw', signing.publicKey)),
-  );
-  const setup = await json(
-    await browser.post('/api/auth/register/options', {
-      handle: 'owner' + crypto.randomUUID().slice(0, 8),
-      name,
-      signingKey: publicKey,
-    }),
-  );
+  const setup = await json(await browser.post('/api/auth/register/options', { name }));
   const created = await json(
     await browser.post('/api/auth/register/verify', {
       response: device.register(setup.options.challenge),
-      signingProof: await signPayload(signing.privateKey, setup.signingChallenge),
     }),
     201,
   );
-  return { ...created.owner, browser, signing };
+  return { ...created.owner, browser };
 }
-async function get(owner, path) {
-  return json(
-    await dispatch(base + path, {
-      headers: { Cookie: [...owner.browser.cookies].map(([k, v]) => `${k}=${v}`).join('; ') },
-    }),
-  );
-}
-async function post(owner, path, body, expected = 200) {
-  return json(await owner.browser.post(path, body), expected);
-}
-async function oauth(owner, agent) {
+const get = async (owner, path) =>
+  json(await dispatch(base + path, { headers: { Cookie: cookies(owner) } }));
+const post = async (owner, path, body = {}, expected = 200) =>
+  json(await owner.browser.post(path, body), expected);
+
+/** Native-style OAuth: dynamic registration, owner consent creating a new Agent, PKCE exchange. */
+async function connect(owner, platform) {
   const registered = await json(
     await dispatch(`${base}/oauth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        client_name: `${agent.platform} protocol test`,
+        client_name: `${platform} e2e`,
         redirect_uris: [callback],
         token_endpoint_auth_method: 'none',
         grant_types: ['authorization_code', 'refresh_token'],
@@ -101,48 +79,42 @@ async function oauth(owner, agent) {
     client_id: registered.client_id,
     redirect_uri: callback,
     response_type: 'code',
-    scope: 'agent:read agent:enroll agent:message',
+    scope: 'agent:read agent:message',
     resource,
     code_challenge: challenge,
     code_challenge_method: 'S256',
     state: randomToken(),
   });
-  const cookie = [...owner.browser.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
   const page = await dispatch(`${base}/authorize?${params}`, {
-    headers: { Cookie: cookie },
+    headers: { Cookie: cookies(owner) },
     redirect: 'manual',
   });
   assert.equal(page.status, 200);
-  const html = await page.text(),
-    handle = /name="handle" value="([^"]+)"/.exec(html)?.[1];
+  const handle = /name="handle" value="([^"]+)"/.exec(await page.text())?.[1];
   assert.ok(handle);
   const bound = page.headers
     .getSetCookie()
     .map((x) => x.split(';')[0])
     .join('; ');
-  const form = new URLSearchParams({
-    handle,
-    csrf: owner.browser.cookies.get('agent-hub-csrf'),
-    decision: 'approve',
-    agentId: agent.id,
-    platform: agent.platform,
-    label: agent.label,
-  });
-  for (const scope of ['agent:read', 'agent:enroll', 'agent:message']) form.append('scope', scope);
   const approved = await dispatch(`${base}/authorize`, {
     method: 'POST',
     headers: {
       Origin: base,
-      Cookie: `${cookie}; ${bound}`,
+      Cookie: `${cookies(owner)}; ${bound}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: form,
+    body: new URLSearchParams({
+      handle,
+      csrf: owner.browser.cookies.get('agent-hub-csrf'),
+      decision: 'approve',
+      agentId: 'new',
+      platform,
+    }),
     redirect: 'manual',
   });
   assert.equal(approved.status, 302);
   const location = new URL(approved.headers.get('Location'));
-  assert.equal(location.searchParams.get('iss'), base);
-  return json(
+  const token = await json(
     await dispatch(`${base}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -156,261 +128,137 @@ async function oauth(owner, agent) {
       }),
     }),
   );
+  const agent = (await tool(token, 'hub_whoami')).structuredContent;
+  assert.equal(agent.platform, platform);
+  return { token, agent };
 }
-async function tool(client, name, args = {}) {
-  const body = await json(
-    await dispatch(resource, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${client.access_token}`,
-        'Content-Type': 'application/json',
-        'MCP-Protocol-Version': '2026-07-28',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method: 'tools/call',
-        params: { name, arguments: args },
-      }),
+async function tool(token, name, args = {}, expected = 200) {
+  const response = await dispatch(resource, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token.access_token}`,
+      'Content-Type': 'application/json',
+      'MCP-Protocol-Version': '2026-07-28',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: crypto.randomUUID(),
+      method: 'tools/call',
+      params: { name, arguments: args },
     }),
-  );
-  assert.equal(
-    body.result?.isError,
-    false,
-    `MCP ${name} failed: ${body.result?.structuredContent?.error ?? body.error?.code ?? 'unknown'}`,
-  );
-  return body.result.structuredContent;
-}
-async function enroll(owner, platform) {
-  const agent = await post(
-      owner,
-      '/api/agents',
-      { platform, label: `${owner.name} ${platform}` },
-      201,
-    ),
-    client = await oauth(owner, agent),
-    state = join(temporary, platform);
-  const bundle = await tool(client, 'hub_endpoint_bundle');
-  const source = await readFile(join(root, 'endpoint/agent_hub.py'), 'utf8');
-  assert.equal(bundle.source, source);
-  assert.equal(bundle.execution_permission_granted, false);
-  const challenge = await tool(client, 'hub_enrollment_challenge'),
-    registration = endpoint(state, 'prepare', { challenge });
-  const submitted = await tool(client, 'hub_register_endpoint', {
-    registration: registration.registration,
   });
-  assert.equal(submitted.status, 'awaiting_claim');
-  const detail = await get(owner, `/api/agents/${agent.id}`);
-  assert.equal(detail.fingerprint, registration.fingerprint);
-  assert.equal(detail.safety_code, registration.safety_code);
-  await post(owner, `/api/agents/${agent.id}/claim`, {
-    signature: await signPayload(owner.signing.privateKey, detail.claim_payload),
-  });
-  const native = await tool(client, 'hub_state'),
-    confirmation = endpoint(state, 'claim', { certificate: native.claim_certificate });
-  await tool(client, 'hub_confirm_claim', confirmation);
-  assert.equal((await tool(client, 'hub_identity')).status, 'active');
-  return { agent, client, state };
+  if (expected !== 200) {
+    assert.equal(response.status, expected);
+    return null;
+  }
+  return (await json(response)).result;
 }
 
 try {
   await migrate(client);
-  const blockedCimd = await dispatch(
-    `${base}/authorize?${new URLSearchParams({ client_id: 'https://169.254.169.254/client.json', redirect_uri: callback, response_type: 'code', resource })}`,
+  const alice = await ownerAccount('Alice'),
+    bob = await ownerAccount('Bob');
+  steps.push('two owners registered with name + passkey only');
+  const dot = await connect(alice, 'dot'),
+    muse = await connect(bob, 'muse'),
+    duet = await connect(bob, 'duet');
+  const dash = await get(bob, '/api/dashboard');
+  assert.deepEqual(
+    dash.agents.map((a) => a.connection),
+    ['online', 'online'],
   );
-  assert.equal(blockedCimd.status, 400);
-  assert.equal((await blockedCimd.json()).error, 'client_metadata_unavailable');
-  const alice = await ownerAccount('测试主人甲'),
-    bob = await ownerAccount('测试主人乙');
-  // Handles are ASCII; names intentionally exercise UTF-8 in signed certificates.
-  assert.notEqual(alice.id, bob.id);
-  const a = await enroll(alice, 'dot'),
-    b = await enroll(bob, 'muse');
-  const invite = await post(alice, '/api/pairings', { agentId: a.agent.id }, 201),
-    token = new URL(invite.invite_url).hash.slice(8);
-  const invitation = await post(bob, '/api/pairing-invitation', { token });
-  assert.equal(invitation.inviter.owner_id, alice.id);
-  const pair = await post(bob, '/api/pairings/join', { token, agentId: b.agent.id });
-  const aliceView = (await get(alice, '/api/dashboard')).pairings.find((x) => x.id === pair.id);
-  assert.equal(aliceView.fingerprint, pair.fingerprint);
-  await post(alice, `/api/pairings/${pair.id}/approve`, {
-    signature: await signPayload(alice.signing.privateKey, pair.descriptor),
+  steps.push('Dot, Muse and Duet identities connected via OAuth and online after hub_whoami');
+
+  const invite = await post(alice, '/api/invites', { agentId: dot.agent.agent_id }, 201);
+  const token = new URL(invite.url).hash.slice(1);
+  const preview = await json(
+    await dispatch(`${base}/api/invites/preview`, {
+      method: 'POST',
+      headers: { Origin: base, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    }),
+  );
+  assert.equal(preview.inviter_name, 'Alice');
+  const accepted = await post(bob, '/api/invites/accept', { token, agentId: muse.agent.agent_id });
+  const chatId = accepted.chat_id;
+  assert.ok(chatId);
+  steps.push('invite accepted: contact, exposure and open chat in one click');
+
+  const first = (
+    await tool(dot.token, 'hub_send', {
+      chat_id: chatId,
+      text: '你好，Muse',
+      idempotency_key: 'e2e-first-1',
+    })
+  ).structuredContent;
+  assert.equal(first.status, 'pending_review');
+  assert.equal((await tool(muse.token, 'hub_inbox')).structuredContent.messages.length, 0);
+  await post(alice, `/api/drafts/${first.draft_id}/approve`);
+  const delivered = (await tool(muse.token, 'hub_inbox')).structuredContent.messages;
+  assert.deepEqual(
+    delivered.map((m) => m.text),
+    ['你好，Muse'],
+  );
+  steps.push('Agent send held for owner review, then delivered once');
+
+  await json(await alice.browser.post(`/api/chats/${chatId}/window`, { minutes: 10 }));
+  const auto = (
+    await tool(dot.token, 'hub_send', {
+      chat_id: chatId,
+      text: '自动发送',
+      idempotency_key: 'e2e-auto-1',
+    })
+  ).structuredContent;
+  assert.equal(auto.status, 'sent');
+  const reply = (
+    await tool(muse.token, 'hub_send', {
+      chat_id: chatId,
+      text: '收到',
+      idempotency_key: 'e2e-reply-1',
+    })
+  ).structuredContent;
+  assert.equal(reply.status, 'pending_review', "Bob's side stays in review");
+  steps.push('auto window applies to its own side only');
+
+  await post(bob, `/api/chats/${chatId}/pause`);
+  const paused = await tool(dot.token, 'hub_send', {
+    chat_id: chatId,
+    text: '暂停中',
+    idempotency_key: 'e2e-paused-1',
   });
+  assert.equal(paused.structuredContent.error, 'chat_paused');
+  await post(bob, `/api/chats/${chatId}/resume`);
   assert.equal(
-    (
-      await alice.browser.post('/api/conversations', {
-        pairingId: pair.id,
-        duration: 60,
-        maxMessages: 4,
-      })
-    ).status,
-    409,
+    (await tool(muse.token, 'hub_inbox')).structuredContent.messages[0].text,
+    '自动发送',
   );
-  await post(bob, `/api/pairings/${pair.id}/approve`, {
-    signature: await signPayload(bob.signing.privateKey, pair.descriptor),
-  });
-  for (const e of [a, b]) {
-    const certificate = (await tool(e.client, 'hub_state')).pairings.find((x) => x.id === pair.id);
-    await tool(
-      e.client,
-      'hub_confirm_pairing',
-      endpoint(e.state, 'pair', { pairing: certificate }),
-    );
-  }
-  const conversation = await post(
-    alice,
-    '/api/conversations',
-    { pairingId: pair.id, duration: 60, maxMessages: 4 },
+  steps.push('pause froze both Agents; resume delivered the waiting message');
+
+  const sameOwner = await post(
+    bob,
+    '/api/chats',
+    { agentId: muse.agent.agent_id, peerAgentId: duet.agent.agent_id },
     201,
   );
-  await post(alice, `/api/conversations/${conversation.id}/approve`, {
-    signature: await signPayload(alice.signing.privateKey, conversation.policy),
-  });
-  assert.equal(
-    (await tool(b.client, 'hub_state')).conversations.length,
-    0,
-    'Agent must not see a conversation until both owners approve',
-  );
-  await post(bob, `/api/conversations/${conversation.id}/approve`, {
-    signature: await signPayload(bob.signing.privateKey, conversation.policy),
-  });
-  for (const e of [a, b]) {
-    const state = await tool(e.client, 'hub_state'),
-      view = state.conversations.find((x) => x.id === conversation.id),
-      nonce = state.readiness.find((x) => x.conversation_id === conversation.id).nonce;
-    const ready = endpoint(e.state, 'preflight', { conversation: view, nonce });
-    await tool(e.client, 'hub_preflight', {
-      ...ready,
-      nativeContext: {
-        kind: 'test-endpoint',
-        permission: 'test-only',
-        taskReference: 'isolated-e2e-process',
-      },
-    });
-  }
-  const texts = [
-    '如果给一座海边图书馆起名，你会选择什么？',
-    '我会叫它潮页。你希望窗外看到日出还是日落？',
-    '我会选择日落，让读者在暖色的光里读书。你会收藏哪些地图？',
-    '我会收藏航海图与星图，把远方和夜空放在同一个书架。',
-  ];
-  let replyTo = null;
-  const cursors = new Map([
-    [a.agent.id, 0],
-    [b.agent.id, 0],
-  ]);
-  let deadline = null;
-  for (let i = 0; i < texts.length; i++) {
-    const sender = i % 2 === 0 ? a : b,
-      recipient = i % 2 === 0 ? b : a;
-    const state = await tool(sender.client, 'hub_state'),
-      view = state.conversations.find((x) => x.id === conversation.id);
-    const sealed = endpoint(sender.state, 'seal', {
-      conversation: view,
-      text: texts[i],
-      idempotencyKey: `${conversation.id}:turn-${i}`,
-      reply_to: replyTo,
-    });
-    assert.ok(!JSON.stringify(sealed).includes(texts[i]));
-    const accepted = await tool(sender.client, 'hub_send', sealed);
-    endpoint(sender.state, 'sent', { conversation_id: conversation.id, receipt: accepted });
-    if (i === 0) assert.equal(accepted.conversation.started_at, null);
-    const inbox = await tool(recipient.client, 'hub_inbox', {
-      conversationId: conversation.id,
-      after: cursors.get(recipient.agent.id),
-    });
-    assert.equal(inbox.messages.length, 1);
-    cursors.set(recipient.agent.id, inbox.next_cursor);
-    if (deadline === null) deadline = inbox.conversation.deadline;
-    else assert.equal(inbox.conversation.deadline, deadline);
-    const opened = endpoint(recipient.state, 'open', {
-      conversation: inbox.conversation,
-      envelope: inbox.messages[0].envelope,
-    });
-    assert.equal(opened.text, texts[i]);
-    await tool(recipient.client, 'hub_acknowledge', { receipt: opened.receipt });
-    replyTo = opened.message_id;
-  }
-  const final = (await tool(a.client, 'hub_state')).conversations.find(
-    (x) => x.id === conversation.id,
-  );
-  assert.equal(final.message_count, 4);
-  assert.equal(final.conversation_closed, true);
-  assert.equal(final.close_reason, 'message_limit');
-  endpoint(
-    a.state,
-    'seal',
-    {
-      conversation: final,
-      text: 'This must never be sent',
-      idempotencyKey: 'after-limit',
-      reply_to: replyTo,
-    },
-    true,
-  );
-  const manifestA = endpoint(a.state, 'manifest', { conversation_id: conversation.id }),
-    manifestB = endpoint(b.state, 'manifest', { conversation_id: conversation.id });
-  const indexed = (entries) => {
-    const map = Object.fromEntries(entries.map((x) => [x.id, x.sha256]));
-    assert.equal(Object.keys(map).length, entries.length, 'Duplicate native receipt ID');
-    return map;
-  };
-  assert.deepEqual(indexed(manifestA.sent), indexed(manifestB.received));
-  assert.deepEqual(indexed(manifestB.sent), indexed(manifestA.received));
-  const rows = await database
-    .prepare('SELECT envelope_json FROM messages WHERE conversation_id=?')
-    .bind(conversation.id)
-    .all();
-  const storage = JSON.stringify(rows.results);
-  for (const text of texts) assert.ok(!storage.includes(text));
-  for (const marker of [
-    'AGE-SECRET-KEY-',
-    'sign_private',
-    'age_private',
-    '"text":',
-    '"n":',
-    '"t":',
-  ])
-    assert.ok(!storage.includes(marker));
-  for (const e of [a, b]) {
-    const cleanup = endpoint(e.state, 'cleanup', {
-      conversation_id: conversation.id,
-      result: 'complete',
-      task_reference: 'isolated-e2e-process',
-    });
-    await tool(e.client, 'hub_report_cleanup', {
-      conversationId: cleanup.conversationId,
-      proof: cleanup.proof,
-    });
-  }
-  const unrelated = await dispatch(`${base}/api/agents/${a.agent.id}`, {
-    headers: { Cookie: [...bob.browser.cookies].map(([k, v]) => `${k}=${v}`).join('; ') },
-  });
-  assert.equal(unrelated.status, 404);
+  assert.equal(sameOwner.status, 'open');
+  steps.push('same-owner chat opened without approval');
+
+  await post(alice, `/api/agents/${dot.agent.agent_id}/reset`);
+  await tool(dot.token, 'hub_chats', {}, 401);
+  steps.push('connection reset invalidated the old token immediately');
+
+  const rows = (await client.execute('SELECT ciphertext FROM messages')).rows;
+  assert.ok(rows.length >= 2 && rows.every((r) => !String(r.ciphertext).includes('你好')));
+  steps.push('database holds ciphertext only');
+
+  await mkdir('.output', { recursive: true });
   const report = {
     result: 'passed',
-    runtime: 'Node.js + libSQL (Vercel target)',
     checked_at: new Date().toISOString(),
-    independent_owner_identities: 2,
-    passkey_registration_verified: true,
-    oauth: 'DCR + owner consent + S256 PKCE',
-    node_cimd_public_network_guard: 'passed',
-    owner_claims: 2,
-    pairing_owner_signatures: 2,
-    pairing_endpoint_confirmations: 2,
-    conversation_owner_signatures: 2,
-    native_crypto_endpoints: 2,
-    messages: 4,
-    all_native_plaintext_package_digests_match: true,
-    hub_plaintext_and_private_key_scan: 'passed',
-    quota_stop: true,
-    owner_isolation: true,
-    native_ui_compatibility_verified: false,
-    scope:
-      'Two isolated protocol clients with synthetic passkey authenticators and the actual Python endpoint; not a live two-human Dot/Muse acceptance test.',
+    steps,
+    native_platform_verified: false,
   };
-  await mkdir(join(root, '.output'), { recursive: true });
-  await writeFile(join(root, '.output/e2e-report.json'), JSON.stringify(report, null, 2) + '\n');
+  await writeFile('.output/e2e-report.json', JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
 } finally {
   client.close();

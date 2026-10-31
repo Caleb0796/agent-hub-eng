@@ -14,7 +14,8 @@ try {
   await migrate(client);
   process.env.TURSO_DATABASE_URL = `file:${join(directory, 'http.db')}`;
   process.env.APP_ENV = 'test';
-  process.env.SIGNUP_MODE = 'invite';
+  process.env.SIGNUP_MODE = 'closed';
+  process.env.MESSAGE_KEY_V1 = Buffer.alloc(32, 9).toString('base64url');
   delete process.env.VERCEL;
   const { default: listener } = await import('../api/index.mjs');
   server = createServer(listener);
@@ -37,47 +38,41 @@ try {
   assert.match((await fetch(base + script)).headers.get('Content-Type'), /javascript/);
   assert.equal((await fetch(`${base}/api/me`)).status, 401);
   assert.equal((await fetch(`${base}/api/cron/cleanup`)).status, 401);
-  const options = await fetch(`${base}/api/auth/register/options`, {
-    method: 'POST',
-    headers: { Origin: base, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      handle: 'httpowner',
-      name: 'HTTP test',
-      signingKey: Buffer.alloc(32, 1).toString('base64url'),
-    }),
-  });
-  assert.equal(
-    options.status,
-    403,
-    'hosted-style invite gate must reject signup without a valid invite',
-  );
-  const created = spawnSync(process.execPath, ['scripts/create-invite.mjs', '--hours', '1'], {
-    env: { ...process.env, PUBLIC_ORIGIN: base },
-    encoding: 'utf8',
-  });
-  assert.equal(created.status, 0, created.stderr);
-  const link = created.stdout.trim().split('\n').at(-1);
-  assert.ok(link.startsWith(`${base}/#signupInvite=`));
-  const invite = new URLSearchParams(new URL(link).hash.slice(1)).get('signupInvite');
   const post = (path, body) =>
     fetch(`${base}${path}`, {
       method: 'POST',
       headers: { Origin: base, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-  assert.deepEqual(await (await post('/api/auth/invite/check', { invite })).json(), {
-    valid: true,
+  const closed = await post('/api/auth/register/options', { name: 'HTTP test' });
+  assert.equal(closed.status, 403, 'SIGNUP_MODE=closed must stop new sign-ups');
+  assert.equal((await closed.json()).error, 'signup_closed');
+  assert.deepEqual(await (await fetch(`${base}/api/auth/signup-status`)).json(), { open: false });
+  const discovery = await (await fetch(`${base}/.well-known/agent-hub.json`)).json();
+  assert.deepEqual(discovery.tools, ['hub_whoami', 'hub_chats', 'hub_inbox', 'hub_send']);
+  assert.equal(discovery.data.end_to_end_encrypted, false);
+  for (const platform of ['dot', 'muse', 'duet'])
+    assert.equal((await fetch(`${base}/connect/${platform}?format=markdown`)).status, 200);
+  const userId = crypto.randomUUID();
+  await client.execute({
+    sql: 'INSERT INTO users(id,display_name,created_at) VALUES(?,?,?)',
+    args: [userId, 'Recovery owner', Math.floor(Date.now() / 1000)],
   });
-  assert.deepEqual(await (await post('/api/auth/invite/check', { invite: 'x' + invite })).json(), {
-    valid: false,
+  const recovery = spawnSync(process.execPath, ['scripts/create-recovery.mjs', '--user', userId], {
+    env: { ...process.env, PUBLIC_ORIGIN: base },
+    encoding: 'utf8',
   });
-  const invited = await post('/api/auth/register/options', {
-    handle: 'httpinvited',
-    name: 'HTTP invited',
-    signingKey: Buffer.alloc(32, 2).toString('base64url'),
-    invite,
+  assert.equal(recovery.status, 0, recovery.stderr);
+  const link = recovery.stdout.trim().split('\n').at(-1);
+  assert.ok(link.startsWith(`${base}/recover#`));
+  const recoverOptions = await post('/api/auth/recover/options', {
+    token: new URL(link).hash.slice(1),
   });
-  assert.equal(invited.status, 200, 'a generated invitation must open passkey registration');
+  assert.equal(
+    recoverOptions.status,
+    200,
+    'a generated recovery link must open passkey registration',
+  );
   const report = {
     result: 'passed',
     checked_at: new Date().toISOString(),
@@ -85,8 +80,9 @@ try {
     ui_and_assets: true,
     security_headers: true,
     unauthenticated_owner_rejected: true,
-    invite_gate: true,
-    invite_generation: true,
+    signup_closed_switch: true,
+    discovery_v2: true,
+    recovery_link: true,
     cron_authentication: true,
     live_vercel_deployment: false,
   };

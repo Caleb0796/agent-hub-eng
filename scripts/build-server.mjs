@@ -11,6 +11,5 @@ await build({
   format: 'esm',
   external: ['@libsql/client', '@simplewebauthn/server', 'undici', 'ipaddr.js'],
   inject: [resolve('src/server/public-fetch.ts')],
-  loader: { '.py': 'text' },
   alias: { 'cloudflare:workers': resolve('src/server/oauth-runtime.ts') },
 });

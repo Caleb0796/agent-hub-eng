@@ -9,10 +9,9 @@ import {
   type RegistrationResponseJSON,
   type AuthenticationResponseJSON,
 } from '@simplewebauthn/server';
-import { base64url, decode64, randomToken, sha256, utf8, verifySignature } from '../shared/crypto';
-import { keySchema, signatureSchema } from '../shared/protocol';
+import { base64url, decode64, randomToken, sha256, utf8 } from '../shared/crypto';
+import { displayNameSchema } from '../shared/protocol';
 import {
-  approvalKeyReplaceable,
   audit,
   asJson,
   db,
@@ -21,47 +20,20 @@ import {
   nowSeconds,
   origin,
   owner,
-  ownerView,
+  publicOwner,
   rateLimit,
   requireBrowserOrigin,
   sessionCookieName,
   type HubBindings,
   type HubContext,
 } from './common';
+import type { Statement } from './storage';
 
 const router = new Hono<{ Bindings: HubBindings }>();
-const registerInput = z
-  .object({
-    handle: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .regex(/^[a-z0-9][a-z0-9_-]{2,29}$/),
-    name: z.string().trim().min(1).max(60),
-    signingKey: keySchema,
-    invite: z.string().max(100).optional(),
-  })
-  .strict();
-type RegistrationData = z.infer<typeof registerInput> & {
-  userId: string;
-  inviteHash: string | null;
-};
-type Challenge = {
-  token_hash: string;
-  kind: string;
-  challenge: string;
-  data_json: string;
-  expires_at: number;
-};
-type CredentialRow = {
-  id: string;
-  user_id: string;
-  public_key: string;
-  counter: number;
-  transports_json: string;
-  device_type: string;
-  backed_up: number;
-};
+type Kind = 'register' | 'login' | 'add_passkey' | 'recover';
+type Challenge = { token_hash: string; kind: Kind; challenge: string; data_json: string };
+type CredentialRow = { id: string; user_id: string; public_key: string; counter: number };
+const algorithms = [-7, -8, -257];
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -98,12 +70,7 @@ function cookieOptions(c: HubContext, maxAge: number) {
     maxAge,
   };
 }
-async function saveChallenge(
-  c: HubContext,
-  kind: 'register' | 'login',
-  challenge: string,
-  data: unknown,
-): Promise<void> {
+async function saveChallenge(c: HubContext, kind: Kind, challenge: string, data: unknown) {
   const token = randomToken();
   await db(c.env)
     .prepare(
@@ -113,7 +80,7 @@ async function saveChallenge(
     .run();
   setCookie(c, challengeCookie(c), token, cookieOptions(c, 300));
 }
-async function consumeChallenge(c: HubContext, kind: 'register' | 'login'): Promise<Challenge> {
+async function consumeChallenge(c: HubContext, kind: Kind): Promise<Challenge> {
   const token = getCookie(c, challengeCookie(c));
   ensure(
     token && /^[A-Za-z0-9_-]{43}$/.test(token),
@@ -131,11 +98,11 @@ async function consumeChallenge(c: HubContext, kind: 'register' | 'login'): Prom
   ensure(result, 'challenge_expired', 400, '验证已过期或已使用，请重新开始');
   return result;
 }
-async function createSession(c: HubContext, userId: string): Promise<string> {
+async function createSession(c: HubContext, userId: string): Promise<void> {
   const token = randomToken(),
     csrf = randomToken(),
-    at = nowSeconds();
-  const connection = db(c.env);
+    at = nowSeconds(),
+    connection = db(c.env);
   await connection.batch([
     connection
       .prepare(
@@ -145,9 +112,75 @@ async function createSession(c: HubContext, userId: string): Promise<string> {
     audit(connection, 'owner_authenticated', userId, { owner: userId }, {}, at),
   ]);
   setCookie(c, sessionCookieName(c.env), token, cookieOptions(c, 86400));
-  // CSRF is separate from the HttpOnly authentication secret and is intentionally readable by the UI.
+  // CSRF is separate from the HttpOnly session secret and intentionally readable by the UI.
   setCookie(c, 'agent-hub-csrf', csrf, { ...cookieOptions(c, 86400), httpOnly: false });
-  return csrf;
+}
+async function ownerView(c: HubContext, userId: string) {
+  const user = await db(c.env)
+    .prepare('SELECT id,display_name FROM users WHERE id=?')
+    .bind(userId)
+    .first<{ id: string; display_name: string }>();
+  ensure(user, 'login_required', 401, '登录已失效');
+  return publicOwner(user);
+}
+
+async function creationOptions(c: HubContext, userId: string, name: string) {
+  const existing = (
+    await db(c.env)
+      .prepare('SELECT id FROM passkeys WHERE user_id=?')
+      .bind(userId)
+      .all<{ id: string }>()
+  ).results;
+  return generateRegistrationOptions({
+    rpName: 'Agent Hub',
+    rpID: origin(c.env).hostname,
+    // Discoverable passkeys need no username; the display name labels the credential.
+    userName: name,
+    userDisplayName: name,
+    userID: utf8(userId),
+    attestationType: 'none',
+    excludeCredentials: existing.map((p) => ({ id: p.id })),
+    authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+    supportedAlgorithmIDs: algorithms,
+  });
+}
+async function verifyCreation(c: HubContext, response: unknown, challenge: string) {
+  ensure(registrationResponse(response), 'invalid_credential', 400, '无效的通行密钥');
+  let result;
+  try {
+    result = await verifyRegistrationResponse({
+      response,
+      expectedChallenge: challenge,
+      expectedOrigin: origin(c.env).origin,
+      expectedRPID: origin(c.env).hostname,
+      requireUserVerification: true,
+      supportedAlgorithmIDs: algorithms,
+    });
+  } catch {
+    throw new HubError('passkey_verification_failed', 400, '通行密钥验证失败，请重新开始');
+  }
+  ensure(result.verified, 'passkey_verification_failed', 400, '通行密钥验证失败');
+  return result.registrationInfo;
+}
+function insertPasskey(
+  c: HubContext,
+  userId: string,
+  info: Awaited<ReturnType<typeof verifyCreation>>,
+): Statement {
+  return db(c.env)
+    .prepare(
+      'INSERT INTO passkeys(id,user_id,public_key,counter,transports_json,device_type,backed_up,created_at) VALUES(?,?,?,?,?,?,?,?)',
+    )
+    .bind(
+      info.credential.id,
+      userId,
+      base64url(new Uint8Array(info.credential.publicKey)),
+      info.credential.counter,
+      JSON.stringify(info.credential.transports ?? []),
+      info.credentialDeviceType,
+      Number(info.credentialBackedUp),
+      nowSeconds(),
+    );
 }
 
 router.use('*', async (c, next) => {
@@ -159,182 +192,47 @@ router.use('*', async (c, next) => {
   await next();
 });
 
-// Lets the signup page reject a stale invitation before the passkey ceremony.
-// Returns only a boolean; consumption still happens atomically at registration.
-router.post('/invite/check', async (c) => {
-  await rateLimit(c.env, `invite:${c.req.header('X-Forwarded-For') ?? 'local'}`, 10);
-  const { invite } = z
-    .object({ invite: z.string().min(1).max(100) })
-    .strict()
-    .parse(await c.req.json());
-  const row = await db(c.env)
-    .prepare(
-      'SELECT token_hash FROM signup_invites WHERE token_hash=? AND consumed_by IS NULL AND expires_at>?',
-    )
-    .bind(await sha256(invite), nowSeconds())
-    .first();
-  return c.json({ valid: !!row });
-});
+router.get('/signup-status', (c) => c.json({ open: c.env.SIGNUP_MODE === 'open' }));
 
 router.post('/register/options', async (c) => {
-  const input = registerInput.parse(await c.req.json());
-  const connection = db(c.env);
-  ensure(
-    !(await connection.prepare('SELECT id FROM users WHERE handle=?').bind(input.handle).first()),
-    'handle_unavailable',
-    409,
-    '这个用户名已经被使用',
-  );
-  let inviteHash: string | null = null;
-  if (c.env.SIGNUP_MODE !== 'open') {
-    ensure(input.invite, 'invitation_required', 403, '当前为邀请测试，请使用邀请链接注册');
-    inviteHash = await sha256(input.invite);
-    ensure(
-      await connection
-        .prepare(
-          'SELECT token_hash FROM signup_invites WHERE token_hash=? AND consumed_by IS NULL AND expires_at>?',
-        )
-        .bind(inviteHash, nowSeconds())
-        .first(),
-      'invalid_invitation',
-      403,
-      '邀请链接无效或已使用',
-    );
-  }
-  const userId = crypto.randomUUID();
-  const options = await generateRegistrationOptions({
-    rpName: 'Agent Hub',
-    rpID: origin(c.env).hostname,
-    userName: input.handle,
-    userDisplayName: input.name,
-    userID: utf8(userId),
-    attestationType: 'none',
-    authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-    supportedAlgorithmIDs: [-7, -8, -257],
-    // Lets authenticators that need it enable PRF now; the approval key is derived later.
-    extensions: { prf: {} } as AuthenticationExtensionsClientInputs,
-  });
-  await saveChallenge(c, 'register', options.challenge, {
-    ...input,
-    invite: undefined,
-    userId,
-    inviteHash,
-  });
-  return c.json({
-    options,
-    signingChallenge: {
-      kind: 'owner-registration',
-      challenge: options.challenge,
-      user_id: userId,
-      signing_key: input.signingKey,
-    },
-  });
+  ensure(c.env.SIGNUP_MODE === 'open', 'signup_closed', 403, '注册暂时关闭，已有账号可以正常登录');
+  const { name } = z
+    .object({ name: displayNameSchema })
+    .strict()
+    .parse(await c.req.json());
+  await rateLimit(c.env, `signup-ip:${c.req.header('X-Forwarded-For') ?? 'local'}`, 10, 3600);
+  const userId = crypto.randomUUID(),
+    options = await creationOptions(c, userId, name);
+  await saveChallenge(c, 'register', options.challenge, { name, userId });
+  return c.json({ options });
 });
 
 router.post('/register/verify', async (c) => {
-  const input = z
-    .object({
-      response: z.custom<RegistrationResponseJSON>(registrationResponse),
-      signingProof: signatureSchema,
-    })
-    .strict()
-    .parse(await c.req.json());
+  ensure(c.env.SIGNUP_MODE === 'open', 'signup_closed', 403, '注册暂时关闭');
+  const body = await c.req.json<{ response: unknown }>();
   const challenge = await consumeChallenge(c, 'register'),
-    data = asJson<RegistrationData>(challenge.data_json);
-  ensure(
-    c.env.SIGNUP_MODE === 'open' || data.inviteHash,
-    'invitation_required',
-    403,
-    '当前注册需要有效邀请',
-  );
-  ensure(
-    await verifySignature(
-      data.signingKey,
-      {
-        kind: 'owner-registration',
-        challenge: challenge.challenge,
-        user_id: data.userId,
-        signing_key: data.signingKey,
-      },
-      input.signingProof,
-    ),
-    'invalid_signing_proof',
-    400,
-    '授权密钥证明不匹配',
-  );
-  let result;
-  try {
-    result = await verifyRegistrationResponse({
-      response: input.response,
-      expectedChallenge: challenge.challenge,
-      expectedOrigin: origin(c.env).origin,
-      expectedRPID: origin(c.env).hostname,
-      requireUserVerification: true,
-      supportedAlgorithmIDs: [-7, -8, -257],
-    });
-  } catch {
-    throw new HubError('passkey_verification_failed', 400, '通行密钥验证失败，请重新开始');
-  }
-  ensure(result.verified, 'passkey_verification_failed', 400, '通行密钥验证失败');
-  const info = result.registrationInfo,
-    connection = db(c.env),
+    data = asJson<{ name: string; userId: string }>(challenge.data_json);
+  const info = await verifyCreation(c, body?.response, challenge.challenge);
+  // The daily cap counts completed sign-ups only.
+  const day = Math.floor(nowSeconds() / 86400);
+  await rateLimit(c.env, `signup-day:${day}`, c.env.SIGNUP_DAILY_CAP, 86400).catch(() => {
+    throw new HubError('signup_closed', 403, '今日注册名额已满，请明天再试；已有账号不受影响');
+  });
+  const connection = db(c.env),
     at = nowSeconds();
-  const statements = [
-    connection
-      .prepare(
-        `INSERT INTO users(id,handle,display_name,signing_key,created_at)
-    SELECT ?,?,?,?,? WHERE ? IS NULL OR EXISTS(SELECT 1 FROM signup_invites WHERE token_hash=? AND consumed_by IS NULL AND expires_at>?)`,
-      )
-      .bind(
-        data.userId,
-        data.handle,
-        data.name,
-        data.signingKey,
-        at,
-        data.inviteHash,
-        data.inviteHash,
-        at,
-      ),
-  ];
-  statements.push(
-    connection
-      .prepare(
-        'INSERT INTO passkeys(id,user_id,public_key,counter,transports_json,device_type,backed_up,created_at) VALUES(?,?,?,?,?,?,?,?)',
-      )
-      .bind(
-        info.credential.id,
-        data.userId,
-        base64url(new Uint8Array(info.credential.publicKey)),
-        info.credential.counter,
-        JSON.stringify(info.credential.transports ?? []),
-        info.credentialDeviceType,
-        Number(info.credentialBackedUp),
-        at,
-      ),
-  );
-  if (data.inviteHash)
-    statements.push(
-      connection
-        .prepare(
-          'UPDATE signup_invites SET consumed_by=? WHERE token_hash=? AND consumed_by IS NULL',
-        )
-        .bind(data.userId, data.inviteHash),
-    );
-  statements.push(
-    audit(connection, 'owner_registered', data.userId, { owner: data.userId }, {}, at),
-  );
   try {
-    await connection.batch(statements);
+    await connection.batch([
+      connection
+        .prepare('INSERT INTO users(id,display_name,created_at) VALUES(?,?,?)')
+        .bind(data.userId, data.name, at),
+      insertPasskey(c, data.userId, info),
+      audit(connection, 'owner_registered', data.userId, { owner: data.userId }, {}, at),
+    ]);
   } catch {
     throw new HubError('registration_conflict', 409, '注册信息已变化，请重新开始');
   }
   await createSession(c, data.userId);
-  return c.json(
-    {
-      owner: await ownerView(connection, data.userId),
-    },
-    201,
-  );
+  return c.json({ owner: await ownerView(c, data.userId) }, 201);
 });
 
 router.post('/login/options', async (c) => {
@@ -394,100 +292,78 @@ router.post('/login/verify', async (c) => {
     .run();
   ensure(changed.meta.changes === 1, 'authentication_conflict', 409, '验证状态变化，请重试登录');
   await createSession(c, credential.user_id);
-  return c.json({ owner: await ownerView(connection, credential.user_id) });
+  return c.json({ owner: await ownerView(c, credential.user_id) });
 });
 
-// Replaces the owner approval key (upgrade to a passkey-derived key, or recovery in a new
-// browser). Only allowed before any Agent claim or pairing pinned the old key; pending
-// Agent connections are revoked because their endpoints already pinned it at prepare.
-router.post('/approval-key', async (c) => {
+// A second passkey (for example on another device) for a signed-in owner.
+router.post('/passkeys/options', async (c) => {
   const user = await owner(c, { write: true, fresh: true });
-  const input = z
-    .object({
-      signingKey: keySchema,
-      keyKind: z.enum(['browser', 'passkey-prf']),
-      credentialId: z.string().min(1).max(1024).nullable(),
-      issuedAt: z.number().int(),
-      signature: signatureSchema,
-    })
-    .strict()
-    .parse(await c.req.json());
-  const at = nowSeconds(),
-    connection = db(c.env);
-  ensure(Math.abs(at - input.issuedAt) <= 300, 'proof_expired', 400, '密钥证明已过期，请重试');
-  ensure(
-    (input.keyKind === 'passkey-prf') === (input.credentialId !== null),
-    'invalid_key_kind',
-    400,
-    '密钥类型与通行密钥不匹配',
-  );
-  ensure(
-    await verifySignature(
-      input.signingKey,
-      {
-        kind: 'owner-approval-key',
-        user_id: user.id,
-        signing_key: input.signingKey,
-        key_kind: input.keyKind,
-        credential_id: input.credentialId,
-        issued_at: input.issuedAt,
-      },
-      input.signature,
-    ),
-    'invalid_signing_proof',
-    400,
-    '授权密钥证明不匹配',
-  );
-  if (input.credentialId)
-    ensure(
-      await connection
-        .prepare('SELECT id FROM passkeys WHERE id=? AND user_id=?')
-        .bind(input.credentialId, user.id)
-        .first(),
-      'unknown_credential',
-      400,
-      '这个通行密钥不属于当前账号',
-    );
-  ensure(
-    await approvalKeyReplaceable(connection, user.id),
-    'approval_key_locked',
-    409,
-    '已有完成认领的 Agent 或配对，不能更换授权密钥',
-  );
-  const pending = await connection
+  const options = await creationOptions(c, user.id, user.display_name);
+  await saveChallenge(c, 'add_passkey', options.challenge, { userId: user.id });
+  return c.json({ options });
+});
+router.post('/passkeys/verify', async (c) => {
+  const user = await owner(c, { write: true, fresh: true });
+  const challenge = await consumeChallenge(c, 'add_passkey'),
+    data = asJson<{ userId: string }>(challenge.data_json);
+  ensure(data.userId === user.id, 'challenge_expired', 400, '验证已过期，请重新开始');
+  const body = await c.req.json<{ response: unknown }>();
+  const info = await verifyCreation(c, body?.response, challenge.challenge);
+  const connection = db(c.env);
+  await connection.batch([
+    insertPasskey(c, user.id, info),
+    audit(connection, 'passkey_added', user.id, { owner: user.id }),
+  ]);
+  return c.json({ ok: true });
+});
+
+// Operator-issued recovery (scripts/create-recovery.mjs): registers a new passkey and
+// invalidates every previous passkey and session of that owner.
+async function recoveryLink(c: HubContext, token: string) {
+  const link = await db(c.env)
     .prepare(
-      "SELECT id FROM agents WHERE owner_id=? AND status IN ('awaiting_connection','awaiting_endpoint','awaiting_claim')",
+      `SELECT r.token_hash,r.user_id,u.display_name FROM recovery_links r JOIN users u ON u.id=r.user_id
+        WHERE r.token_hash=? AND r.consumed_at IS NULL AND r.expires_at>? AND u.deleted_at IS NULL`,
     )
-    .bind(user.id)
-    .all<{ id: string }>();
-  try {
-    await connection.batch([
-      connection
-        .prepare(
-          "UPDATE agents SET status='revoked',revoked_at=?,updated_at=?,auth_version=auth_version+1 WHERE owner_id=? AND status IN ('awaiting_connection','awaiting_endpoint','awaiting_claim')",
-        )
-        .bind(at, at, user.id),
-      connection
-        .prepare(
-          'UPDATE users SET signing_key=?,approval_key_kind=?,approval_credential_id=? WHERE id=?',
-        )
-        .bind(input.signingKey, input.keyKind, input.credentialId, user.id),
-      ...pending.results.map((a) =>
-        audit(connection, 'agent_revoked', a.id, { owner: user.id }, {}, at, `revoked:${a.id}`),
-      ),
-      audit(
-        connection,
-        'owner_approval_key_replaced',
-        user.id,
-        { owner: user.id },
-        { kind: input.keyKind, revoked_agents: pending.results.length },
-        at,
-      ),
-    ]);
-  } catch {
-    throw new HubError('approval_key_locked', 409, '授权密钥已被绑定，不能更换');
-  }
-  return c.json({ owner: await ownerView(connection, user.id) });
+    .bind(await sha256(token), nowSeconds())
+    .first<{ token_hash: string; user_id: string; display_name: string }>();
+  ensure(link, 'recovery_unavailable', 410, '恢复链接无效或已过期，请联系运维');
+  return link;
+}
+const recoveryInput = z.object({ token: z.string().min(20).max(100) }).strict();
+router.post('/recover/options', async (c) => {
+  const { token } = recoveryInput.parse(await c.req.json());
+  const link = await recoveryLink(c, token);
+  const options = await creationOptions(c, link.user_id, link.display_name);
+  await saveChallenge(c, 'recover', options.challenge, {
+    tokenHash: link.token_hash,
+    userId: link.user_id,
+  });
+  return c.json({ options, name: link.display_name });
+});
+router.post('/recover/verify', async (c) => {
+  const body = await c.req.json<{ response: unknown }>();
+  const challenge = await consumeChallenge(c, 'recover'),
+    data = asJson<{ tokenHash: string; userId: string }>(challenge.data_json);
+  const info = await verifyCreation(c, body?.response, challenge.challenge);
+  const connection = db(c.env),
+    at = nowSeconds();
+  // Consume first so a replayed ceremony can never add a passkey.
+  const used = await connection
+    .prepare(
+      'UPDATE recovery_links SET consumed_at=? WHERE token_hash=? AND consumed_at IS NULL AND expires_at>?',
+    )
+    .bind(at, data.tokenHash, at)
+    .run();
+  ensure(used.meta.changes === 1, 'recovery_unavailable', 410, '恢复链接已被使用');
+  await connection.batch([
+    connection.prepare('DELETE FROM passkeys WHERE user_id=?').bind(data.userId),
+    connection.prepare('DELETE FROM browser_sessions WHERE user_id=?').bind(data.userId),
+    insertPasskey(c, data.userId, info),
+    audit(connection, 'owner_recovered', data.userId, { owner: data.userId }, {}, at),
+  ]);
+  await createSession(c, data.userId);
+  return c.json({ owner: await ownerView(c, data.userId) });
 });
 
 router.post('/logout', async (c) => {
