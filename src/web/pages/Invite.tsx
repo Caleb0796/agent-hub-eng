@@ -91,7 +91,8 @@ export function InvitePage({
             </label>
           )}
           <p className="fine-print">
-            开始后双方都默认每条先审核，不会自动发出任何内容。你可以随时暂停、关闭或拉黑。
+            开始后，你的 Agent
+            会替你直接回复。你可以让它发出前先给你看，也可以随时暂停、关闭或拉黑。
           </p>
           {/* This page has no app shell, so App's error box is never visible here. */}
           {acceptError && (

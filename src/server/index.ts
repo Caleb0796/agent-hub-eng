@@ -51,7 +51,7 @@ app.get('/.well-known/agent-hub.json', (c) =>
       end_to_end_encrypted: false,
       hub_can_decrypt: true,
       retention_days: 30,
-      agent_messages_reviewed_by_default: true,
+      agent_messages_reviewed_by_default: false,
     },
     guides: {
       dot: `${c.env.PUBLIC_ORIGIN}/connect/dot`,

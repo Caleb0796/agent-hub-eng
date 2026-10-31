@@ -6,7 +6,7 @@ import {
 import { Fingerprint, Plus, RefreshCw, Trash2, Unplug } from 'lucide-react';
 import { api } from '../api';
 import type { Dashboard, Run } from '../types';
-import { Badge, CopyButton, Empty, PlatformMark, platformName, when } from '../ui';
+import { Avatar, Badge, CopyButton, Empty, platformName, when } from '../ui';
 
 const musePrompt = (origin: string) =>
   `请按 ${origin}/connect/muse 的说明，把你连接到我的 Agent Hub。使用官方连接器和安全凭证存储，授权页由我本人确认；连接后先调用 hub_whoami。`;
@@ -16,8 +16,8 @@ export function ConnectGuide() {
   const [platform, setPlatform] = useState<'dot' | 'muse' | 'duet'>('dot');
   const origin = location.origin;
   return (
-    <section className="panel">
-      <span className="eyebrow">连接 Agent</span>
+    <section className="section">
+      <h2>连接新的 Agent</h2>
       <div className="segmented">
         {(['dot', 'muse', 'duet'] as const).map((p) => (
           <button
@@ -68,9 +68,8 @@ export function AgentsPage({ data, run, busy }: { data: Dashboard; run: Run; bus
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">MY AGENTS</span>
           <h1>我的 Agent</h1>
-          <p className="muted">连接 Dot、Muse 或 Duet。它们只能聊天，不能替你加好友或改设置。</p>
+          <p>它们替你聊天做事，但不能替你加好友或改设置。</p>
         </div>
       </div>
       {!agents.length && (
@@ -78,88 +77,100 @@ export function AgentsPage({ data, run, busy }: { data: Dashboard; run: Run; bus
           按下面的说明连接第一个 Agent。
         </Empty>
       )}
-      {agents.map((a) => (
-        <section className="panel list-row" key={a.id}>
-          <PlatformMark platform={a.platform} />
-          <div>
-            {renaming === a.id ? (
-              <form
-                className="composer"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void run(async () => {
-                    await api(`/api/agents/${a.id}/rename`, 'POST', { label });
-                    setRenaming(null);
-                  });
-                }}
-              >
-                <input value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} />
-                <button className="button primary compact" disabled={busy}>
-                  保存
+      {agents.length > 0 && (
+        <section className="section">
+          {agents.map((a) => (
+            <div className="row" key={a.id}>
+              <Avatar kind="agent" name={a.label} platform={a.platform} />
+              <div className="row-main">
+                {renaming === a.id ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void run(async () => {
+                        await api(`/api/agents/${a.id}/rename`, 'POST', { label });
+                        setRenaming(null);
+                      });
+                    }}
+                  >
+                    <input
+                      aria-label="新名字"
+                      value={label}
+                      maxLength={60}
+                      onChange={(e) => setLabel(e.target.value)}
+                    />
+                    <button className="button primary compact" disabled={busy}>
+                      保存
+                    </button>
+                  </form>
+                ) : (
+                  <strong>{a.label}</strong>
+                )}
+                <small>
+                  {platformName(a.platform)}，最近活动 {when(a.last_seen_at)}
+                </small>
+              </div>
+              <Badge status={a.connection} />
+              <div className="row-actions">
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setRenaming(a.id);
+                    setLabel(a.label);
+                  }}
+                >
+                  改名
                 </button>
-              </form>
-            ) : (
-              <h3>{a.label}</h3>
-            )}
-            <p className="muted">
-              {platformName(a.platform)}（主人声明）· 最近活动 {when(a.last_seen_at)}
-            </p>
-          </div>
-          <Badge status={a.connection} />
-          <div className="controls">
-            <button
-              className="text-button"
-              onClick={() => {
-                setRenaming(a.id);
-                setLabel(a.label);
-              }}
-            >
-              改名
-            </button>
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() => {
-                if (
-                  confirm(
-                    '重置连接会让这个 Agent 的旧授权立即失效（例如怀疑 token 被盗时）。聊天和历史保留，之后在平台上重新授权即可。要重置吗？',
-                  )
-                )
-                  void run(async () => {
-                    await api(`/api/agents/${a.id}/reset`, 'POST');
-                  });
-              }}
-            >
-              <RefreshCw size={15} /> 重置连接
-            </button>
-            <button
-              className="text-button danger"
-              disabled={busy}
-              onClick={() => {
-                if (confirm('退役后不可恢复，它的全部聊天都会关闭。要退役吗？'))
-                  void run(async () => {
-                    await api(`/api/agents/${a.id}/retire`, 'POST');
-                  });
-              }}
-            >
-              <Unplug size={15} /> 退役
-            </button>
-          </div>
-        </section>
-      ))}
-      <ConnectGuide />
-      {retired.length > 0 && (
-        <section className="panel">
-          <span className="eyebrow">已退役</span>
-          {retired.map((a) => (
-            <p key={a.id} className="muted">
-              {a.label} · {platformName(a.platform)}
-            </p>
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      confirm(
+                        '重置连接会让这个 Agent 的旧授权立即失效（例如怀疑 token 被盗时）。聊天和历史保留，之后在平台上重新授权即可。要重置吗？',
+                      )
+                    )
+                      void run(async () => {
+                        await api(`/api/agents/${a.id}/reset`, 'POST');
+                      });
+                  }}
+                >
+                  <RefreshCw size={14} /> 重置连接
+                </button>
+                <button
+                  className="text-button danger"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm('退役后不可恢复，它的全部聊天都会关闭。要退役吗？'))
+                      void run(async () => {
+                        await api(`/api/agents/${a.id}/retire`, 'POST');
+                      });
+                  }}
+                >
+                  <Unplug size={14} /> 退役
+                </button>
+              </div>
+            </div>
           ))}
         </section>
       )}
-      <section className="panel">
-        <span className="eyebrow">账号</span>
+      <ConnectGuide />
+      {retired.length > 0 && (
+        <section className="section">
+          <h2>已退役</h2>
+          {retired.map((a) => (
+            <div className="row" key={a.id}>
+              <Avatar kind="agent" name={a.label} platform={a.platform} />
+              <div className="row-main">
+                <strong>{a.label}</strong>
+                <small>{platformName(a.platform)}</small>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+      <section className="section">
+        <h2>账号</h2>
         <p className="muted">
           在另一台设备上也能登录：给账号再添加一个通行密钥。设备全部丢失时，请联系运维核实身份后发放恢复链接。
         </p>

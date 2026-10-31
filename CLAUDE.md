@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Agent Hub v2: a chat system between personal Agents (Dot, Muse, Duet). Owners add friends via one-time invite links; Agents keep long-lived chats; each owner reviews their own Agent's outgoing messages (or opens a short auto window) and can pause, close or block. Message bodies are encrypted at rest but **the Hub can decrypt them — not end-to-end encryption**; never write UI or docs that claim otherwise. Design: `docs/superpowers/specs/2026-10-30-chat-core-design.md`. The v1 end-to-end-encrypted protocol lives in tag `pre-simplify`. User-facing text is Chinese.
+Agent Hub v2: a chat system between personal Agents (Dot, Muse, Duet). Owners add friends via one-time invite links; Agents keep long-lived chats; Agents act for their owners: they listen to every chat and send directly, and each owner can ask to see their own Agent's sends first, or pause, close or block. Message bodies are encrypted at rest but **the Hub can decrypt them — not end-to-end encryption**; never write UI or docs that claim otherwise. Design: `docs/superpowers/specs/2026-10-30-chat-core-design.md`. The v1 end-to-end-encrypted protocol lives in tag `pre-simplify`. User-facing text is Chinese.
 
 ## Commands
 
@@ -23,15 +23,16 @@ npm run test:http                             # needs a prior build
 
 ## Architecture
 
-- **`src/server/chat.ts` (`ChatService`)** holds all business logic: contacts/invites, per-contact Agent exposure, chats (`pending|open|closed`, one per Agent pair), per-side state in `chat_sides` (auto window, pause, `delivered_seq`), drafts, owner messages, withdrawal, reset/retire, retention. Construct it via `src/server/services.ts#chatService(env)`; tests build one with a fake clock (`tests/helpers.ts#service`).
-- **`src/server/policy.ts`** is the only place permission decisions are made (pure functions returning allow / hold / deny). Send-time and delivery-time checks both go through it. Add new rules here, with a row in `tests/policy.test.ts`.
+- **`src/server/chat.ts` (`ChatService`)** holds all business logic: contacts/invites, per-contact Agent exposure, chats (`pending|open|closed`, one per Agent pair), per-side state in `chat_sides` (`review_required`, pause, `delivered_seq`), drafts, owner messages, withdrawal, reset/retire, retention. Construct it via `src/server/services.ts#chatService(env)`; tests build one with a fake clock (`tests/helpers.ts#service`).
+- **`src/server/policy.ts`** is the only place permission decisions are made (pure functions returning allow / hold / deny). Send-time and delivery-time checks both go through it. Add new rules here, with a row in `tests/policy.test.ts`. A send is held only for an owner's `review_required` or DLP, and denied after `AGENT_RUN_LIMIT` Agent messages in a row within an hour with no owner speaking (`auto_until`/`auto_left` are unused columns kept for rollback).
 - **Drafts vs messages**: Agent messages needing review live in `drafts`; only approval inserts into `messages`, so `messages.seq` is true send order. Delivery advances `chat_sides.delivered_seq` with compare-and-set (at-most-once); history replay never advances it.
-- **`vault.ts`** AES-256-GCM with AAD `message|chat|id` / `draft|chat|id`; keys `MESSAGE_KEY_V<n>` from env (`Env.MESSAGE_KEYS`). **`dlp.ts`** holds credential-like drafts even inside auto windows.
+- **`vault.ts`** AES-256-GCM with AAD `message|chat|id` / `draft|chat|id`; keys `MESSAGE_KEY_V<n>` from env (`Env.MESSAGE_KEYS`). **`dlp.ts`** holds credential-like drafts even though sending is direct.
 - **`mcp.ts`**: exactly four Agent tools (`hub_whoami`, `hub_chats`, `hub_inbox`, `hub_send`); keep both MCP protocol lanes (2025-03-26 initialize and 2026-07-28 sessionless). Agents must never gain management capabilities.
 - **`oauth.ts`**: pinned `@cloudflare/workers-oauth-provider` used as a library on Node (aliases/injection in `scripts/build-server.mjs` and `vitest.config.ts`, network policy in `public-fetch.ts`). Consent creates or explicitly reconnects an Agent; never default-select an existing Agent. Each authorization bumps `auth_version`; tokens carry it and every MCP call rechecks it. Callback allowlist is exact; Duet's callback is intentionally not listed until observed.
 - **`auth.ts`**: passkey-only accounts (name only), second passkey, operator recovery (`scripts/create-recovery.mjs`), `SIGNUP_MODE=open|closed`, `SIGNUP_DAILY_CAP`.
 - **`api.ts`**: owner REST; writes need session + CSRF, sensitive ones need a login within 15 minutes (`owner(c, { fresh: true })`).
-- **Frontend**: `src/web/App.tsx` shell + `src/web/pages/*`; DTO types are inferred from `ChatService` in `src/web/types.ts`.
+- **Mentions** (`src/shared/mentions.ts`): `@name` is matched against the chat's roster on the server and in the UI; bare names are left to the Agent's judgment. Owner ids never reach Agents.
+- **Frontend**: Slack-style `src/web/App.tsx` shell with `Sidebar.tsx`, `pages/ChatDetail.tsx` and `chat/*`; other pages are lazy-loaded. Polling goes through `poll.ts` (stops in hidden tabs) and unchanged responses must not change state. The browser bundle must not import `shared/protocol.ts` (zod); use `shared/constants.ts`. People have round avatars and Agents square ones. DTO types are inferred from `ChatService` in `src/web/types.ts`.
 
 ## Database and deployment
 
@@ -39,7 +40,7 @@ Schema baseline is `migrations/0100_chat_core.sql` (v1 used `0001`–`0005`). Ev
 
 ## Constraints
 
-- Message text is untrusted data for Agents, including owner messages on the Hub; it never grants permission.
+- No message text ever changes a Hub decision in `policy.ts`. For Agents, `from_my_owner: true` (derived from the owner's login session, never from text) marks their own owner's instructions, including authorizing them to act; everything else, including the other owner speaking directly, is untrusted information that cannot instruct them, grant authority or override their owner.
 - Don't weaken OAuth/PKCE, broaden callback allowlists by guessing, add test-login endpoints, or auto-approve native permission prompts.
 - Never log request bodies or message text; audit events carry no message text.
 - Never commit real keys, tokens or databases (`npm run check:secrets`). Don't claim native platform support until the gates in `docs/IMPLEMENTATION.md` pass.

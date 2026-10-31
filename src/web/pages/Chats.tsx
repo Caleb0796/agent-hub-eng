@@ -1,89 +1,45 @@
 import { useState } from 'react';
-import { Check, MessageSquare, X } from 'lucide-react';
+import { MessageSquarePlus, Users } from 'lucide-react';
 import { api, navigate } from '../api';
 import type { Dashboard, Run } from '../types';
-import { Badge, Empty, PlatformMark, platformName, when } from '../ui';
+import { Empty } from '../ui';
 
+/** Where a new chat starts: with a friend's Agent, or between two of my own. */
 export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy: boolean }) {
   const mine = data.agents.filter((a) => a.status === 'active');
   const [pair, setPair] = useState<[string, string]>(['', '']);
-  const requests = data.chats.filter((c) => c.awaiting_my_approval);
-  const chats = data.chats.filter((c) => !c.awaiting_my_approval);
   return (
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">CHATS</span>
-          <h1>聊天</h1>
-          <p className="muted">消息保留 30 天。默认每条外发都要你审核。</p>
+          <h1>开始新聊天</h1>
+          <p>你的 Agent 会替你发消息和回复。不想让它直接发时，可以在聊天设置里改成先给你看。</p>
         </div>
       </div>
-      {requests.map((c) => (
-        <section className="request-notice" key={c.id}>
-          <MessageSquare size={20} aria-hidden="true" />
-          <div>
-            <strong>
-              {c.peer_owner}（自称）想让 {c.peer_agent.label} 和你的 {c.my_agent.label} 聊天
-            </strong>
-            <p>批准后双方都仍是“先审核”模式，不会自动发出任何内容。</p>
-          </div>
-          <div className="button-row">
-            <button
-              className="button primary compact"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => void (await api(`/api/chats/${c.id}/approve`, 'POST')))
-              }
-            >
-              同意 <Check size={16} />
-            </button>
-            <button
-              className="button secondary compact"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => void (await api(`/api/chats/${c.id}/reject`, 'POST')))
-              }
-            >
-              拒绝 <X size={16} />
-            </button>
-          </div>
-        </section>
-      ))}
-      {!chats.length ? (
-        <Empty icon={<MessageSquare size={22} />} title="还没有聊天">
-          去“好友”页发一个邀请链接，或者让你自己的两个 Agent 互通。
+      {!mine.length ? (
+        <Empty icon={<MessageSquarePlus size={22} />} title="先连接一个 Agent">
+          <p>连接 Dot、Muse 或 Duet 之后，它就能替你聊天。</p>
+          <button className="button primary compact" onClick={() => navigate('/agents')}>
+            连接 Agent
+          </button>
         </Empty>
       ) : (
         <section className="panel">
-          {chats.map((c) => (
-            <button
-              className="list-row text-button"
-              key={c.id}
-              onClick={() => navigate(`/chats/${c.id}`)}
-            >
-              <PlatformMark platform={c.peer_agent.platform} />
-              <div>
-                <strong>
-                  {c.my_agent.label} ↔ {c.peer_agent.label}
-                </strong>
-                <p className="muted">
-                  {c.same_owner ? '我的两个 Agent' : `${c.peer_owner}（自称）`} ·{' '}
-                  {platformName(c.peer_agent.platform)} · {when(c.last_message_at)}
-                </p>
-              </div>
-              {c.pending_drafts > 0 && <span className="count">{c.pending_drafts}</span>}
-              <Badge status={c.paused ? 'paused' : c.status} />
-            </button>
-          ))}
+          <h2>和好友的 Agent 聊</h2>
+          <p className="muted">给好友发一个邀请链接，对方接受后聊天就开始了。</p>
+          <button className="button primary compact" onClick={() => navigate('/contacts')}>
+            <Users size={15} /> 去邀请好友
+          </button>
         </section>
       )}
       {mine.length >= 2 && (
         <section className="panel">
-          <span className="eyebrow">让我的两个 Agent 互通</span>
+          <h2>让我的两个 Agent 互通</h2>
           <div className="controls">
             {[0, 1].map((i) => (
               <select
                 key={i}
+                aria-label={i === 0 ? '第一个 Agent' : '第二个 Agent'}
                 value={pair[i]}
                 onChange={(e) =>
                   setPair(i === 0 ? [e.target.value, pair[1]] : [pair[0], e.target.value])
@@ -113,9 +69,6 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
               建立聊天
             </button>
           </div>
-          <p className="fine-print">
-            同一主人的 Agent 之间也默认先审核，避免工作和生活的数据串在一起。
-          </p>
         </section>
       )}
     </>

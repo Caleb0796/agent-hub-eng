@@ -1,0 +1,5 @@
+// Kept free of zod so the browser bundle can import these without pulling in the validators.
+export const platforms = ['dot', 'muse', 'duet'] as const;
+export type Platform = (typeof platforms)[number];
+export const platformNames: Record<Platform, string> = { dot: 'Dot', muse: 'Muse', duet: 'Duet' };
+export const MAX_TEXT = 4000;

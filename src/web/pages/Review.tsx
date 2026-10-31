@@ -15,30 +15,29 @@ export function ReviewPage({ run, busy, version }: { run: Run; busy: boolean; ve
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">REVIEW</span>
-          <h1>待审核</h1>
+          <h1>待你确认</h1>
           <p className="muted">
-            这些是你的 Agent 想发出的消息。只有这个页面（{location.origin}
-            /review）是真正的审核入口。
+            你的 Agent 想发出、但需要你先看一眼的消息。只有这个页面（{location.origin}
+            /review）是真正的确认入口。
           </p>
         </div>
       </div>
       {!items.length ? (
-        <Empty icon={<Check size={22} />} title="没有待审核的消息">
-          Agent 发出的新消息会出现在这里。
+        <Empty icon={<Check size={22} />} title="没有要确认的消息">
+          疑似包含密钥的内容，或你要求先看的聊天，会出现在这里。
         </Empty>
       ) : (
         items.map((d) => (
           <section className="panel" key={d.id}>
-            <p className="muted">
-              {d.agent_label} → {d.peer_label} · {when(d.created_at)} · {when(d.expires_at)} 前处理
+            <p className="review-meta">
+              {d.agent_label} 想发给 {d.peer_label}，{when(d.expires_at)} 前有效
             </p>
             {d.hold_reason === 'dlp' && (
               <div className="error">
                 <ShieldAlert size={16} /> 疑似包含密钥：{d.dlp_rules.join('、')}。确认无误才发送。
               </div>
             )}
-            <div className="message draft">{d.text}</div>
+            <div className="review-text">{d.text}</div>
             <div className="button-row">
               <button
                 className="button primary compact"
@@ -62,7 +61,7 @@ export function ReviewPage({ run, busy, version }: { run: Run; busy: boolean; ve
                   })
                 }
               >
-                <X size={15} /> 拒绝
+                <X size={15} /> 丢弃
               </button>
               <button className="text-button" onClick={() => navigate(`/chats/${d.chat_id}`)}>
                 查看聊天

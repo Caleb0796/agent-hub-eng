@@ -24,6 +24,7 @@ export const INVITE_TTL = 7 * 86400;
 export const MAX_ACTIVE_INVITES = 5;
 export const REQUEST_COOLDOWN = 86400;
 const MAX_AGENTS = 8;
+const DELETED_OWNER = '已注销用户';
 
 export interface AgentRow {
   id: string;
@@ -210,7 +211,7 @@ export class ChatService {
   }
   private async ownerName(id: string): Promise<{ name: string; deleted: boolean }> {
     const u = await this.user(id);
-    return { name: u.deleted_at ? '已注销用户' : u.display_name, deleted: !!u.deleted_at };
+    return { name: u.deleted_at ? DELETED_OWNER : u.display_name, deleted: !!u.deleted_at };
   }
 
   // ---------------------------------------------------------------- agents
@@ -792,8 +793,14 @@ export class ChatService {
         chatId,
       ).all<SideRow>()
     ).results as [SideRow, SideRow];
-    const agents: Record<string, AgentRow> = {};
-    for (const s of sides) agents[s.agent_id] = await this.agent(s.agent_id);
+    const agentRows = (
+      await this.sql(
+        'SELECT * FROM agents WHERE id IN (?,?)',
+        sides[0].agent_id,
+        sides[1].agent_id,
+      ).all<AgentRow>()
+    ).results;
+    const agents: Record<string, AgentRow> = Object.fromEntries(agentRows.map((a) => [a.id, a]));
     const contact = chat.same_owner
       ? null
       : await this.contactBetween(sides[0].owner_id, sides[1].owner_id);
@@ -1525,14 +1532,18 @@ export class ChatService {
 
   /** Everyone in a chat: both Agents and their owners. Owner ids never leave the server. */
   private async roster(loaded: Loaded): Promise<RosterEntry[]> {
-    const ownerIds = [...new Set(loaded.sides.map((s) => s.owner_id))];
-    const owners = await Promise.all(
-      ownerIds.map(async (id) => ({
-        kind: 'owner' as const,
-        id,
-        name: (await this.ownerName(id)).name,
-      })),
-    );
+    const users = (
+      await this.sql(
+        'SELECT id,display_name,deleted_at FROM users WHERE id IN (?,?)',
+        loaded.sides[0].owner_id,
+        loaded.sides[1].owner_id,
+      ).all<{ id: string; display_name: string; deleted_at: number | null }>()
+    ).results;
+    const owners = users.map((u) => ({
+      kind: 'owner' as const,
+      id: u.id,
+      name: u.deleted_at ? DELETED_OWNER : u.display_name,
+    }));
     const agents = loaded.sides.map((s) => ({
       kind: 'agent' as const,
       id: s.agent_id,
@@ -1744,8 +1755,7 @@ export class ChatService {
       blocked: loaded.state.blocked,
       sides,
       agent_run_limited:
-        loaded.chat.status === 'open' &&
-        (await this.recentAgentRun(chatId, at)) >= AGENT_RUN_LIMIT,
+        loaded.chat.status === 'open' && (await this.recentAgentRun(chatId, at)) >= AGENT_RUN_LIMIT,
       messages: rows.map((m) => {
         const taken = this.recipients(m, loaded).some((s) => s.delivered_seq >= m.seq);
         const mine = this.sentByOwner(m, loaded, ownerId);
@@ -1753,6 +1763,7 @@ export class ChatService {
           id: m.id,
           seq: m.seq,
           sender_kind: m.sender_kind,
+          sender_agent_id: m.sender_agent_id,
           sender_label:
             m.sender_kind === 'agent'
               ? (loaded.agents[m.sender_agent_id!]?.label ?? 'Agent')
@@ -1833,47 +1844,64 @@ export class ChatService {
       last_seen_at: a.last_seen_at,
       created_at: a.created_at,
     }));
-    const chatIds = (
-      await this.sql('SELECT DISTINCT chat_id FROM chat_sides WHERE owner_id=?', ownerId).all<{
+    // Polled every few seconds, so its query count must not grow with the number of chats.
+    const MY_CHATS = 'SELECT chat_id FROM chat_sides WHERE owner_id=?';
+    const [chatRows, sideRows, lastRows, draftRows] = await Promise.all([
+      this.sql(`SELECT * FROM chats WHERE id IN (${MY_CHATS})`, ownerId).all<ChatRow>(),
+      this.sql(
+        `SELECT s.chat_id,s.agent_id,s.owner_id,s.paused_at,a.label,a.platform,a.status,u.display_name,u.deleted_at
+          FROM chat_sides s JOIN agents a ON a.id=s.agent_id JOIN users u ON u.id=s.owner_id
+          WHERE s.chat_id IN (${MY_CHATS}) ORDER BY s.agent_id`,
+        ownerId,
+      ).all<{
         chat_id: string;
-      }>()
-    ).results;
-    const chats = [];
-    for (const { chat_id } of chatIds) {
-      const loaded = await this.load(chat_id);
-      const mine = loaded.sides.filter((s) => s.owner_id === ownerId);
-      const peer = loaded.sides.find((s) => s.owner_id !== ownerId) ?? loaded.sides[1];
-      const last = await this.sql(
-        'SELECT MAX(sent_at) AS at FROM messages WHERE chat_id=? AND expires_at>?',
-        chat_id,
+        agent_id: string;
+        owner_id: string;
+        paused_at: number | null;
+        label: string;
+        platform: Platform;
+        status: AgentRow['status'];
+        display_name: string;
+        deleted_at: number | null;
+      }>(),
+      this.sql(
+        `SELECT chat_id,MAX(sent_at) AS at FROM messages
+          WHERE expires_at>? AND chat_id IN (${MY_CHATS}) GROUP BY chat_id`,
         at,
-      ).first<{ at: number | null }>();
-      const drafts = await this.sql(
-        `SELECT COUNT(*) AS n FROM drafts d JOIN agents a ON a.id=d.agent_id WHERE d.chat_id=? AND a.owner_id=? AND d.status='pending' AND d.expires_at>?`,
-        chat_id,
+        ownerId,
+      ).all<{ chat_id: string; at: number }>(),
+      this.sql(
+        `SELECT d.chat_id,COUNT(*) AS n FROM drafts d JOIN agents a ON a.id=d.agent_id
+          WHERE a.owner_id=? AND d.status='pending' AND d.expires_at>? GROUP BY d.chat_id`,
         ownerId,
         at,
-      ).first<{ n: number }>();
-      chats.push({
-        id: chat_id,
-        status: loaded.chat.status,
-        same_owner: !!loaded.chat.same_owner,
-        my_agent: { id: mine[0].agent_id, label: loaded.agents[mine[0].agent_id].label },
+      ).all<{ chat_id: string; n: number }>(),
+    ]);
+    const lastAt = new Map(lastRows.results.map((r) => [r.chat_id, r.at]));
+    const draftCount = new Map(draftRows.results.map((r) => [r.chat_id, r.n]));
+    const chats = chatRows.results.map((chat) => {
+      const sides = sideRows.results.filter((s) => s.chat_id === chat.id);
+      const mine = sides.find((s) => s.owner_id === ownerId)!;
+      const peer = sides.find((s) => s.owner_id !== ownerId) ?? sides[1];
+      return {
+        id: chat.id,
+        status: chat.status,
+        same_owner: !!chat.same_owner,
+        my_agent: { id: mine.agent_id, label: mine.label },
         peer_agent: {
           id: peer.agent_id,
-          label: loaded.agents[peer.agent_id].label,
-          platform: loaded.agents[peer.agent_id].platform,
-          status: loaded.agents[peer.agent_id].status,
+          label: peer.label,
+          platform: peer.platform,
+          status: peer.status,
         },
-        peer_owner: (await this.ownerName(peer.owner_id)).name,
-        awaiting_my_approval:
-          loaded.chat.status === 'pending' && loaded.chat.requested_by !== ownerId,
-        paused: loaded.sides.some((s) => s.paused_at),
-        pending_drafts: drafts?.n ?? 0,
-        last_message_at: last?.at ?? null,
-        close_reason: loaded.chat.close_reason,
-      });
-    }
+        peer_owner: peer.deleted_at ? DELETED_OWNER : peer.display_name,
+        awaiting_my_approval: chat.status === 'pending' && chat.requested_by !== ownerId,
+        paused: sides.some((s) => s.paused_at),
+        pending_drafts: draftCount.get(chat.id) ?? 0,
+        last_message_at: lastAt.get(chat.id) ?? null,
+        close_reason: chat.close_reason,
+      };
+    });
     chats.sort((a, b) => (b.last_message_at ?? 0) - (a.last_message_at ?? 0));
     const notifications = (
       await this.sql(

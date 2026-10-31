@@ -59,8 +59,18 @@ describe('permission matrix', () => {
       {},
       { kind: 'hold', reason: 'review' },
     ],
-    ['the other owner asking for review → still direct', chat({}, [{}, review]), {}, { kind: 'allow' }],
-    ['credential-like text → dlp hold', chat(), { dlpHits: ['x'] }, { kind: 'hold', reason: 'dlp' }],
+    [
+      'the other owner asking for review → still direct',
+      chat({}, [{}, review]),
+      {},
+      { kind: 'allow' },
+    ],
+    [
+      'credential-like text → dlp hold',
+      chat(),
+      { dlpHits: ['x'] },
+      { kind: 'hold', reason: 'dlp' },
+    ],
     [
       'credential-like text with review on → dlp hold',
       chat({}, [review, {}]),
@@ -79,7 +89,12 @@ describe('permission matrix', () => {
       { recentAgentRun: AGENT_RUN_LIMIT },
       { kind: 'deny', code: 'agent_run_limit' },
     ],
-    ['just under the run limit → direct', chat(), { recentAgentRun: AGENT_RUN_LIMIT - 1 }, { kind: 'allow' }],
+    [
+      'just under the run limit → direct',
+      chat(),
+      { recentAgentRun: AGENT_RUN_LIMIT - 1 },
+      { kind: 'allow' },
+    ],
     [
       'peer side paused → deny',
       chat({}, [{}, { paused_at: now }]),
@@ -106,10 +121,12 @@ describe('permission matrix', () => {
   });
 
   it('an Agent outside the chat is not found', () => {
-    expect(canAgentSend(chat(), 'C', { dlpHits: [], pendingDrafts: 0, recentAgentRun: 0 })).toEqual({
-      kind: 'deny',
-      code: 'not_found',
-    });
+    expect(canAgentSend(chat(), 'C', { dlpHits: [], pendingDrafts: 0, recentAgentRun: 0 })).toEqual(
+      {
+        kind: 'deny',
+        code: 'not_found',
+      },
+    );
   });
 
   it.each([

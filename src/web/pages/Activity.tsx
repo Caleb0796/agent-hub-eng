@@ -25,6 +25,8 @@ const labels: Record<string, string> = {
   chat_closed: '聊天关闭',
   chat_paused: '暂停聊天',
   chat_resumed: '解除暂停',
+  review_on: '打开发出前确认',
+  review_off: '关闭发出前确认',
   window_opened: '打开自动窗口',
   window_closed: '关闭自动窗口',
   draft_approved: '批准草稿',
@@ -44,17 +46,15 @@ export function ActivityPage({ version }: { version: unknown }) {
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">ACTIVITY</span>
           <h1>活动记录</h1>
           <p className="muted">与你相关的权限变化和操作。记录不包含消息正文。</p>
         </div>
       </div>
-      <section className="panel">
+      <section className="section">
         {events.map((e) => (
-          <div className="list-row" key={e.id}>
-            <div />
-            <div>{labels[e.event_type] ?? e.event_type}</div>
-            <span className="muted">{when(e.created_at)}</span>
+          <div className="log-row" key={e.id}>
+            <span>{labels[e.event_type] ?? e.event_type}</span>
+            <time>{when(e.created_at)}</time>
           </div>
         ))}
       </section>

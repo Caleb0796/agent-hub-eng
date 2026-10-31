@@ -93,7 +93,11 @@ describe('Agent MCP surface', () => {
     expect(sent.status).toBe('sent');
     expect((await tool(alice, 'hub_send', args)).structuredContent).toEqual(sent);
     const inbox = (await tool(bob, 'hub_inbox')).structuredContent;
-    expect(inbox.messages[0]).toMatchObject({ text: '你好 Bob', untrusted: true, mentions_me: false });
+    expect(inbox.messages[0]).toMatchObject({
+      text: '你好 Bob',
+      untrusted: true,
+      mentions_me: false,
+    });
     expect(inbox.untrusted_notice).toContain('untrusted');
     expect((await tool(bob, 'hub_inbox')).structuredContent.messages).toHaveLength(0);
     const history = (await tool(bob, 'hub_inbox', { chat_id: f.chatId, after_seq: 0 }))

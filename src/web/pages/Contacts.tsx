@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link2, Plus, Users } from 'lucide-react';
 import { api, ApiError, navigate } from '../api';
 import type { Contact, Dashboard, Invite, Run } from '../types';
-import { CopyButton, Empty, Modal, PlatformMark, platformName, when } from '../ui';
+import { Avatar, CopyButton, Empty, Modal, platformName, when } from '../ui';
 
 export function ContactsPage({
   data,
@@ -34,6 +34,11 @@ export function ContactsPage({
       await api(path, method, body);
       await load();
     });
+  const startChat = (agentId: string, peerAgentId: string) =>
+    void run(async () => {
+      const chat = await api<{ id: string }>('/api/chats', 'POST', { agentId, peerAgentId });
+      navigate(`/chats/${chat.id}`);
+    });
   if (!contacts) return <div className="skeleton" />;
   const active = invites.filter(
     (i) => !i.consumed_at && !i.revoked_at && i.expires_at * 1000 > Date.now(),
@@ -45,11 +50,8 @@ export function ContactsPage({
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">FRIENDS</span>
           <h1>好友</h1>
-          <p className="muted">
-            只能通过你发出的一次性链接加好友。名字是对方自称的，信任来自你把链接发给了谁。
-          </p>
+          <p>通过一次性链接加好友。名字由对方自己填写，真正的依据是你把链接发给了谁。</p>
         </div>
         <button
           className="button primary"
@@ -60,7 +62,7 @@ export function ContactsPage({
             setInviteAgent(mine[0]?.id ?? '');
           }}
         >
-          <Plus size={18} /> 邀请朋友
+          <Plus size={16} /> 邀请朋友
         </button>
       </div>
       {inviting && (
@@ -68,8 +70,8 @@ export function ContactsPage({
           {link ? (
             <>
               <p className="muted">
-                把这个链接私下发给对方，7 天内有效，只能用一次。对方点开后就能让 Agent 和你的 Agent
-                聊天，默认双方每条都要审核。
+                把这个链接私下发给对方，7 天内有效，只能用一次。对方点开后，双方的 Agent
+                就能直接聊天。
               </p>
               <div className="prompt-box mono">{link}</div>
               <CopyButton value={link} label="复制链接" />
@@ -118,13 +120,14 @@ export function ContactsPage({
         </Modal>
       )}
       {active.length > 0 && (
-        <section className="panel">
-          <span className="eyebrow">有效邀请（最多 5 个）</span>
+        <section className="section">
+          <h2>还没被用掉的邀请</h2>
           {active.map((i) => (
-            <div className="controls" key={i.id}>
-              <span className="muted">
-                {i.agent_label ?? '只加好友'} · {when(i.expires_at)} 过期
-              </span>
+            <div className="row" key={i.id}>
+              <div className="row-main">
+                <strong>{i.agent_label ?? '只加好友'}</strong>
+                <small>{when(i.expires_at)} 过期</small>
+              </div>
               <button
                 className="text-button"
                 disabled={busy}
@@ -142,13 +145,18 @@ export function ContactsPage({
         </Empty>
       ) : (
         friends.map((c) => (
-          <section className="panel" key={c.id}>
-            <div className="section-heading">
-              <h3>
-                {c.peer.name}
-                {!c.peer.deleted && <span className="muted">（自称）</span>}
-              </h3>
-              <div className="controls">
+          <section className="friend" key={c.id}>
+            <div className="row">
+              <Avatar kind="owner" name={c.peer.name} />
+              <div className="row-main">
+                <strong>{c.peer.name}</strong>
+                {c.blocked_by_peer ? (
+                  <small>对方已拉黑，暂时无法聊天</small>
+                ) : (
+                  !c.peer.deleted && <small>名字由本人填写</small>
+                )}
+              </div>
+              <div className="row-actions">
                 {c.blocked_by_me ? (
                   <button
                     className="text-button"
@@ -181,81 +189,79 @@ export function ContactsPage({
                 </button>
               </div>
             </div>
-            {c.blocked_by_peer && <p className="muted">对方已拉黑，暂时无法聊天。</p>}
-            <p className="muted">对方开放给你的 Agent：</p>
-            {!c.peer_agents.length && <p className="fine-print">暂无。</p>}
-            {c.peer_agents.map((a) => (
-              <div className="list-row" key={a.id}>
-                <PlatformMark platform={a.platform} />
-                <div>
-                  <strong>{a.label}</strong>
-                  <p className="muted">{platformName(a.platform)}（主人声明）</p>
+            <div className="friend-body">
+              {c.peer_agents.map((a) => (
+                <div className="row" key={a.id}>
+                  <Avatar kind="agent" name={a.label} platform={a.platform} size="small" />
+                  <div className="row-main">
+                    <strong>{a.label}</strong>
+                  </div>
+                  <div className="row-actions">
+                    {mine.length === 1 ? (
+                      <button
+                        className="button secondary compact"
+                        disabled={busy || c.blocked_by_me || c.blocked_by_peer}
+                        onClick={() => startChat(mine[0].id, a.id)}
+                      >
+                        聊天
+                      </button>
+                    ) : (
+                      <select
+                        aria-label={`用我的哪个 Agent 和 ${a.label} 聊`}
+                        disabled={busy || c.blocked_by_me || c.blocked_by_peer || !mine.length}
+                        defaultValue=""
+                        onChange={(e) => e.target.value && startChat(e.target.value, a.id)}
+                      >
+                        <option value="">用我的 Agent 聊…</option>
+                        {mine.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
-                <select
-                  disabled={busy || c.blocked_by_me || c.blocked_by_peer || !mine.length}
-                  defaultValue=""
-                  onChange={(e) => {
-                    const agentId = e.target.value;
-                    if (!agentId) return;
-                    void run(async () => {
-                      const chat = await api<{ id: string }>('/api/chats', 'POST', {
-                        agentId,
-                        peerAgentId: a.id,
-                      });
-                      navigate(`/chats/${chat.id}`);
-                    });
-                  }}
-                >
-                  <option value="">用我的 Agent 发起聊天…</option>
-                  {mine.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
-            <p className="muted">我开放给对方的 Agent（取消勾选会关闭对应聊天）：</p>
-            <div className="controls">
-              {mine.map((m) => (
-                <label className="check-label" key={m.id}>
-                  <input
-                    type="checkbox"
-                    disabled={busy}
-                    checked={c.my_agents.includes(m.id)}
-                    onChange={(e) => {
-                      const next = e.target.checked
-                        ? [...c.my_agents, m.id]
-                        : c.my_agents.filter((x) => x !== m.id);
-                      act('POST', `/api/contacts/${c.id}/agents`, { agentIds: next });
-                    }}
-                  />
-                  {m.label}
-                </label>
               ))}
+              {!c.peer_agents.length && <p className="friend-label">对方还没有开放 Agent 给你。</p>}
+              <p className="friend-label">对方可以和这些 Agent 聊（取消勾选会关闭对应聊天）</p>
+              <div className="controls">
+                {mine.map((m) => (
+                  <label className="check-label" key={m.id}>
+                    <input
+                      type="checkbox"
+                      disabled={busy}
+                      checked={c.my_agents.includes(m.id)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...c.my_agents, m.id]
+                          : c.my_agents.filter((x) => x !== m.id);
+                        act('POST', `/api/contacts/${c.id}/agents`, { agentIds: next });
+                      }}
+                    />
+                    {m.label}
+                  </label>
+                ))}
+              </div>
             </div>
           </section>
         ))
       )}
       {removed.map((c) => (
-        <section className="panel" key={c.id}>
-          <div className="section-heading">
-            <h3>
-              {c.peer.name}
-              {!c.peer.deleted && <span className="muted">（自称）</span>}
-            </h3>
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() => act('POST', `/api/contacts/${c.id}/unblock`)}
-            >
-              解除拉黑
-            </button>
+        <div className="row" key={c.id}>
+          <Avatar kind="owner" name={c.peer.name} />
+          <div className="row-main">
+            <strong>{c.peer.name}</strong>
+            <small>已删除，你还拉黑着对方。解除后才能通过新邀请重新加好友。</small>
           </div>
-          <p className="muted">
-            已删除好友，你仍拉黑着对方。解除拉黑后，才能通过新的邀请重新加好友。
-          </p>
-        </section>
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={() => act('POST', `/api/contacts/${c.id}/unblock`)}
+          >
+            解除拉黑
+          </button>
+        </div>
       ))}
     </>
   );

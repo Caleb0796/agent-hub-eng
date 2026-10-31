@@ -234,7 +234,7 @@ try {
   await post(bob, `/api/chats/${chatId}/resume`);
   assert.equal(
     (await tool(muse.token, 'hub_inbox')).structuredContent.messages[0].text,
-    '自动发送',
+    '我这边还是直发',
   );
   steps.push('pause froze both Agents; resume delivered the waiting message');
 

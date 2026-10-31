@@ -119,7 +119,7 @@ oauthRoutes.get('/authorize', async (c) => {
     <div class="client"><strong>${escape(details.clientName)}</strong><p>${details.clientDomain ? `客户端声明发布于 ${escape(details.clientDomain)}` : '客户端名称由申请方提供，不能证明厂商身份。'}</p><p>授权将返回 <strong>${escape(details.redirectHost)}</strong>。${details.redirectIsLoopback ? '这是你电脑上的本地测试客户端。' : ''}</p></div>
     <form method="post" action="/authorize" data-callback-origin="${escape(new URL(parsed.redirectUri).origin)}" data-callback-path="${escape(new URL(parsed.redirectUri).pathname)}"><input type="hidden" name="handle" value="${escape(transaction.handle)}"><input type="hidden" name="csrf" value="${escape(getCookie(c, 'agent-hub-csrf') ?? '')}">
     ${choice}${platformField}
-    <p class="note">连接后，这个 Agent 可以查看你的聊天、收取消息，并发送消息。默认每条外发都要你审核；它不能加好友、批准聊天或修改任何设置。</p>
+    <p class="note">连接后，这个 Agent 可以查看你的聊天、收取消息，并直接替你发送消息（你可以在聊天设置里改成先给你看）。它不能加好友、批准聊天或修改任何设置。</p>
     <p role="alert" id="consent-error" hidden></p><noscript>请启用 JavaScript 以安全完成授权跳转。</noscript>
     <div class="actions"><button name="decision" value="deny" class="secondary" formnovalidate>拒绝</button><button name="decision" value="approve">授权连接</button></div></form></main></body></html>`;
   transaction.headers.set('Content-Type', 'text/html; charset=utf-8');

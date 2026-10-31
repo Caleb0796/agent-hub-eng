@@ -1,13 +1,13 @@
 import { z } from 'zod';
+import { MAX_TEXT, platforms } from './constants';
+
+export { MAX_TEXT, platformNames, type Platform } from './constants';
 
 export const idSchema = z.uuid();
-export const platformSchema = z.enum(['dot', 'muse', 'duet']);
-export type Platform = z.infer<typeof platformSchema>;
-export const platformNames: Record<Platform, string> = { dot: 'Dot', muse: 'Muse', duet: 'Duet' };
+export const platformSchema = z.enum(platforms);
 
 export const scopes = { read: 'agent:read', message: 'agent:message' } as const;
 
-export const MAX_TEXT = 4000;
 export const textSchema = z.string().trim().min(1).max(MAX_TEXT);
 export const idempotencySchema = z
   .string()

@@ -1,35 +1,39 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  Activity,
-  Bell,
-  ClipboardCheck,
-  Fingerprint,
-  LogOut,
-  MessageSquare,
-  RefreshCw,
-  Users,
-  X,
-} from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Bell, X } from 'lucide-react';
 import { api, ApiError, navigate } from './api';
-import { Auth } from './Auth';
-import type { Dashboard, OwnerView, Run } from './types';
-import { ActivityPage } from './pages/Activity';
-import { AgentsPage } from './pages/Agents';
 import { ChatDetail } from './pages/ChatDetail';
-import { ChatsPage } from './pages/Chats';
-import { ContactsPage } from './pages/Contacts';
-import { InvitePage } from './pages/Invite';
-import { RecoverPage } from './pages/Recover';
-import { ReviewPage } from './pages/Review';
+import { usePoll } from './poll';
+import { markSeen } from './seen';
+import { Sidebar } from './Sidebar';
+import type { Dashboard, OwnerView, Run } from './types';
 
+// Only the chat view is in the first download; everything else loads when it is opened.
+const Auth = lazy(async () => ({ default: (await import('./Auth')).Auth }));
+const ActivityPage = lazy(async () => ({
+  default: (await import('./pages/Activity')).ActivityPage,
+}));
+const AgentsPage = lazy(async () => ({ default: (await import('./pages/Agents')).AgentsPage }));
+const ChatsPage = lazy(async () => ({ default: (await import('./pages/Chats')).ChatsPage }));
+const ContactsPage = lazy(async () => ({
+  default: (await import('./pages/Contacts')).ContactsPage,
+}));
+const InvitePage = lazy(async () => ({ default: (await import('./pages/Invite')).InvitePage }));
+const RecoverPage = lazy(async () => ({ default: (await import('./pages/Recover')).RecoverPage }));
+const ReviewPage = lazy(async () => ({ default: (await import('./pages/Review')).ReviewPage }));
+
+// Requests and messages to confirm already show as badges in the sidebar.
 const notificationText: Record<string, string> = {
   invite_accepted: '有人接受了你的邀请',
-  chat_request: '收到新的聊天请求',
   chat_approved: '对方同意了你的聊天请求',
-  connection_changed: '有好友的 Agent 连接已变更，自动窗口已重置',
-  window_opened: '好友打开了自动窗口，你可以决定是否也打开',
-  review: '你的 Agent 有新消息待审核',
-  dlp_hold: '你的 Agent 想发出疑似密钥的内容，已扣留',
+  connection_changed: '有好友的 Agent 连接变更过，不是对方本人操作的话请暂停聊天',
+};
+
+const pageTitles: Record<string, string> = {
+  '/new': '开始新聊天',
+  '/review': '待你确认',
+  '/contacts': '好友',
+  '/agents': '我的 Agent',
+  '/activity': '活动记录',
 };
 
 export function App() {
@@ -39,6 +43,7 @@ export function App() {
     [path, setPath] = useState(location.pathname),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
+  const snapshot = useRef('');
   useEffect(() => {
     const onRoute = () => setPath(location.pathname);
     addEventListener('popstate', onRoute);
@@ -53,181 +58,149 @@ export function App() {
       .finally(() => setBooting(false));
   }, []);
   const refresh = useCallback(async () => {
-    if (!owner) return;
     try {
-      setData(await api<Dashboard>('/api/dashboard'));
+      const next = await api<Dashboard>('/api/dashboard');
+      // Pages reload when this object changes, so an identical poll must keep the old one.
+      const text = JSON.stringify(next);
+      if (text !== snapshot.current) {
+        snapshot.current = text;
+        setData(next);
+      }
     } catch (e) {
       if (e instanceof ApiError && e.code === 'login_required') setOwner(null);
       else setError(e instanceof Error ? e.message : '无法更新状态');
     }
-  }, [owner]);
-  useEffect(() => {
-    if (!owner) return;
-    void refresh();
-    const timer = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(timer);
-  }, [owner, refresh]);
-  const run: Run = async (action) => {
-    setBusy(true);
-    setError('');
-    try {
-      await action();
-      await refresh();
-    } catch (e) {
-      if (e instanceof ApiError && e.code === 'reauthentication_required') {
-        navigate(
-          `/login?reauth=1&returnTo=${encodeURIComponent(location.pathname + location.search + location.hash)}`,
-        );
-        return;
+  }, []);
+  usePoll(refresh, 6000, !!owner);
+  const run: Run = useCallback(
+    async (action) => {
+      setBusy(true);
+      setError('');
+      try {
+        await action();
+        await refresh();
+      } catch (e) {
+        if (e instanceof ApiError && e.code === 'reauthentication_required') {
+          navigate(
+            `/login?reauth=1&returnTo=${encodeURIComponent(location.pathname + location.search + location.hash)}`,
+          );
+          return;
+        }
+        setError(e instanceof Error ? e.message : '操作未完成');
+      } finally {
+        setBusy(false);
       }
-      setError(e instanceof Error ? e.message : '操作未完成');
-    } finally {
-      setBusy(false);
+    },
+    [refresh],
+  );
+  const logout = useCallback(
+    () =>
+      void run(async () => {
+        await api('/api/auth/logout', 'POST');
+        setOwner(null);
+        setData(null);
+        snapshot.current = '';
+      }),
+    [run],
+  );
+  const openChatId = path.startsWith('/chats/') ? path.split('/')[2] : null;
+  const openChatAt = data?.chats.find((c) => c.id === openChatId)?.last_message_at;
+  useEffect(() => {
+    if (openChatId && openChatAt) markSeen(openChatId, openChatAt);
+  }, [openChatId, openChatAt]);
+  // On a wide screen the home page is the most recent chat, as in Slack.
+  const latestChat = data?.chats.find((c) => c.status !== 'closed')?.id;
+  useEffect(() => {
+    if (path === '/' && latestChat && matchMedia('(min-width: 761px)').matches) {
+      history.replaceState({}, '', `/chats/${latestChat}`);
+      setPath(`/chats/${latestChat}`);
     }
-  };
-  if (booting)
-    return (
-      <div className="loading-page">
-        <span className="brand-mark">a</span>
-        <p>正在打开 Agent Hub…</p>
-      </div>
-    );
+  }, [path, latestChat]);
+  if (booting) return <div className="loading-page">正在打开 Agent Hub…</div>;
+  const fallback = <div className="skeleton" />;
   if (path === '/i')
-    return <InvitePage owner={owner} data={data} run={run} busy={busy} onLogin={setOwner} />;
-  if (path === '/recover' && !owner) return <RecoverPage onLogin={setOwner} />;
+    return (
+      <Suspense fallback={fallback}>
+        <InvitePage owner={owner} data={data} run={run} busy={busy} onLogin={setOwner} />
+      </Suspense>
+    );
+  if (path === '/recover' && !owner)
+    return (
+      <Suspense fallback={fallback}>
+        <RecoverPage onLogin={setOwner} />
+      </Suspense>
+    );
   if (!owner || path === '/login')
     return (
-      <Auth
-        signedIn={!!owner}
-        onLogin={(value) => {
-          setOwner(value);
-          if (path === '/login') navigate('/');
-        }}
-      />
-    );
-  const section = path.split('/')[1] || 'chats';
-  const pending = data?.pending;
-  const nav = [
-    { id: 'chats', label: '聊天', icon: MessageSquare, path: '/', count: pending?.requests },
-    {
-      id: 'review',
-      label: '待审核',
-      icon: ClipboardCheck,
-      path: '/review',
-      count: pending?.drafts,
-    },
-    { id: 'contacts', label: '好友', icon: Users, path: '/contacts' },
-    { id: 'agents', label: '我的 Agent', icon: Fingerprint, path: '/agents' },
-    { id: 'activity', label: '活动记录', icon: Activity, path: '/activity' },
-  ];
-  const notes = data?.notifications ?? [];
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <a
-          className="brand"
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate('/');
+      <Suspense fallback={fallback}>
+        <Auth
+          signedIn={!!owner}
+          onLogin={(value) => {
+            setOwner(value);
+            if (path === '/login') navigate('/');
           }}
-        >
-          <span className="brand-mark">a</span>agent hub
-        </a>
-        <nav aria-label="主导航">
-          {nav.map((n) => (
-            <button
-              key={n.id}
-              className={section === n.id ? 'nav-item active' : 'nav-item'}
-              aria-current={section === n.id ? 'page' : undefined}
-              onClick={() => navigate(n.path)}
-            >
-              <n.icon size={19} />
-              <span>{n.label}</span>
-              {!!n.count && <span className="count">{n.count}</span>}
+        />
+      </Suspense>
+    );
+  const kinds = [...new Set((data?.notifications ?? []).map((n) => n.kind as string))].filter(
+    (kind) => notificationText[kind],
+  );
+  const title = pageTitles[path];
+  return (
+    <div className={path === '/' ? 'app-shell at-home' : 'app-shell'}>
+      <Sidebar owner={owner} data={data} path={path} onLogout={logout} />
+      <div className="main-pane">
+        {title && (
+          <header className="page-bar only-mobile">
+            <button className="icon-button" aria-label="返回聊天列表" onClick={() => navigate('/')}>
+              <ArrowLeft size={20} />
             </button>
-          ))}
-        </nav>
-        <div className="sidebar-note">
-          <strong>不是端到端加密。</strong>
-          <p>消息加密存储、保留 30 天，Hub 技术上能解密。不要传密码、证件等敏感资料。</p>
-        </div>
-        <div className="profile">
-          <span className="avatar">{owner.name.slice(0, 1)}</span>
-          <div>
-            <strong>{owner.name}</strong>
+            <span>{title}</span>
+          </header>
+        )}
+        {error && (
+          <div className="error dismissible" role="alert">
+            {error}
+            <button className="icon-button" aria-label="关闭提示" onClick={() => setError('')}>
+              <X size={16} />
+            </button>
           </div>
-          <button
-            className="icon-button"
-            aria-label="退出登录"
-            onClick={() =>
-              void run(async () => {
-                await api('/api/auth/logout', 'POST');
-                setOwner(null);
-                setData(null);
-              })
-            }
-          >
-            <LogOut size={17} />
-          </button>
-        </div>
-      </aside>
-      <div className="main-shell">
-        <header className="topbar">
-          <span>{nav.find((n) => n.id === section)?.label ?? '聊天'}</span>
-          <button className="icon-button" aria-label="刷新" onClick={() => void refresh()}>
-            <RefreshCw size={17} />
-          </button>
-        </header>
-        <main className="workspace">
-          {error && (
-            <div className="error dismissible" role="alert">
-              {error}
-              <button className="icon-button" aria-label="关闭提示" onClick={() => setError('')}>
-                <X size={16} />
-              </button>
-            </div>
-          )}
-          {notes.length > 0 && (
-            <div className="notice">
-              <Bell size={19} />
-              <div>
-                {[...new Set(notes.map((n) => n.kind as string))].map((kind) => (
-                  <p key={kind}>{notificationText[kind] ?? kind}</p>
-                ))}
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    void run(async () => void (await api('/api/notifications/seen', 'POST')))
-                  }
-                >
-                  知道了
-                </button>
-              </div>
-            </div>
-          )}
-          {!data ? (
-            <div className="skeleton" />
-          ) : section === 'chats' && path.startsWith('/chats/') ? (
-            <ChatDetail
-              key={path.split('/')[2]}
-              id={path.split('/')[2]}
-              run={run}
-              busy={busy}
-              version={data}
-            />
-          ) : section === 'review' ? (
-            <ReviewPage run={run} busy={busy} version={data} />
-          ) : section === 'contacts' ? (
-            <ContactsPage data={data} run={run} busy={busy} version={data} />
-          ) : section === 'agents' ? (
-            <AgentsPage data={data} run={run} busy={busy} />
-          ) : section === 'activity' ? (
-            <ActivityPage version={data} />
-          ) : (
-            <ChatsPage data={data} run={run} busy={busy} />
-          )}
-        </main>
+        )}
+        {kinds.length > 0 && (
+          <div className="note-bar">
+            <Bell size={16} />
+            <span>{kinds.map((kind) => notificationText[kind]).join('；')}</span>
+            <button
+              className="text-button"
+              onClick={() =>
+                void run(async () => void (await api('/api/notifications/seen', 'POST')))
+              }
+            >
+              知道了
+            </button>
+          </div>
+        )}
+        {openChatId ? (
+          <ChatDetail key={openChatId} id={openChatId} run={run} busy={busy} />
+        ) : (
+          <main className="workspace">
+            <Suspense fallback={fallback}>
+              {!data ? (
+                fallback
+              ) : path === '/review' ? (
+                <ReviewPage run={run} busy={busy} version={data} />
+              ) : path === '/contacts' ? (
+                <ContactsPage data={data} run={run} busy={busy} version={data} />
+              ) : path === '/agents' ? (
+                <AgentsPage data={data} run={run} busy={busy} />
+              ) : path === '/activity' ? (
+                <ActivityPage version={data} />
+              ) : (
+                <ChatsPage data={data} run={run} busy={busy} />
+              )}
+            </Suspense>
+          </main>
+        )}
       </div>
     </div>
   );

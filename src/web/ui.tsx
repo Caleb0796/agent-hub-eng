@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, Copy, X } from 'lucide-react';
-import { platformNames, type Platform } from '../shared/protocol';
+import { platformNames, type Platform } from '../shared/constants';
 
 export const platformName = (p: string) => platformNames[p as Platform] ?? p;
 
@@ -13,6 +13,36 @@ export const when = (at: number | null | undefined) =>
         minute: '2-digit',
       })
     : '—';
+
+export const clock = (at: number) =>
+  new Date(at * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+export const day = (at: number) =>
+  new Date(at * 1000).toLocaleDateString('zh-CN', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  });
+
+/** People are round and Agents are square, everywhere, so nobody mistakes one for the other. */
+export function Avatar({
+  kind,
+  name,
+  platform,
+  size,
+}: {
+  kind: 'agent' | 'owner';
+  name: string;
+  platform?: string;
+  size?: 'small';
+}) {
+  const shape = kind === 'agent' ? `agent ${platform ?? ''}` : 'person';
+  return (
+    <span className={`avatar ${shape}${size ? ` ${size}` : ''}`} aria-hidden="true">
+      {(kind === 'agent' && platform ? platformName(platform) : name).slice(0, 1)}
+    </span>
+  );
+}
 
 const labels: Record<string, [string, 'good' | 'pending' | 'quiet']> = {
   online: ['已上线', 'good'],
@@ -30,14 +60,6 @@ export function Badge({ status, label }: { status: string; label?: string }) {
     <span className={`badge ${tone}`}>
       <span />
       {label ?? text}
-    </span>
-  );
-}
-
-export function PlatformMark({ platform }: { platform: string }) {
-  return (
-    <span className={`platform ${platform}`} aria-label={platformName(platform)}>
-      {platformName(platform).slice(0, 1)}
     </span>
   );
 }

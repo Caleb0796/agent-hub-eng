@@ -115,10 +115,7 @@ router.post('/chats/:id/resume', async (c) => {
 });
 router.post('/chats/:id/review', async (c) => {
   const u = await write(c);
-  const input = await body(
-    c,
-    z.object({ agentId: idSchema.optional(), on: z.boolean() }).strict(),
-  );
+  const input = await body(c, z.object({ agentId: idSchema.optional(), on: z.boolean() }).strict());
   return c.json(await chats(c).setReview(u.id, id(c), input.on, input.agentId));
 });
 router.post('/chats/:id/clear', async (c) =>
