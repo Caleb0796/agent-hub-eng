@@ -8,7 +8,7 @@ const base = 'http://localhost:8789',
   resource = `${base}/mcp`,
   callback = 'http://localhost:45678/callback';
 async function authorize(
-  platform: 'dot' | 'muse' = 'dot',
+  platform: 'dot' | 'muse' | 'duet' = 'dot',
   redirect = callback,
   probeSelection = false,
 ) {
@@ -178,6 +178,37 @@ describe('native OAuth without copying API keys', () => {
   it('completes consent and PKCE with the native Muse callback and Muse-only choices', async () => {
     const flow = await authorize('muse', 'https://agent.meta.ai/api/hatch/oauth/callback');
     expect((await flow.exchange()).status).toBe(200);
+  });
+
+  it('completes consent and PKCE with the Duet (Claude) callback', async () => {
+    const flow = await authorize('duet', 'https://claude.ai/api/mcp/auth_callback');
+    expect((await flow.exchange()).status).toBe(200);
+  });
+
+  it('accepts only the exact Duet (Claude) callback', async () => {
+    const callback = 'https://claude.ai/api/mcp/auth_callback';
+    const register = (redirect: string) =>
+      server.fetch(`${base}/oauth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: 'Duet callback compatibility',
+          redirect_uris: [redirect],
+          token_endpoint_auth_method: 'none',
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+        }),
+      });
+    expect((await register(callback)).status).toBe(201);
+    for (const redirect of [
+      callback + '/other',
+      callback + '?next=https://attacker.example',
+      callback.replace('https:', 'http:'),
+      callback.replace('claude.ai', 'claude.ai.attacker.example'),
+      callback.replace('claude.ai', 'evil.claude.ai'),
+      callback.replace('claude.ai', 'claude.ai:8443'),
+    ])
+      expect((await register(redirect)).status, redirect).toBe(400);
   });
 
   it('accepts the observed native Muse callback and rejects neighboring Meta destinations', async () => {

@@ -82,7 +82,11 @@ describe('Vercel and Turso runtime boundaries', () => {
       expect(isPublicAddress(address), address).toBe(false);
     expect(isPublicAddress('1.1.1.1')).toBe(true);
     expect(metadataUrl('https://chatgpt.com/connector-client')).toBeInstanceOf(URL);
+    expect(metadataUrl('https://claude.ai/oauth/mcp-oauth-client-metadata')).toBeInstanceOf(URL);
     for (const url of [
+      'https://claude.ai/oauth/other-client',
+      'https://claude.ai/oauth/mcp-oauth-client-metadata?x=1',
+      'https://evil.claude.ai/oauth/mcp-oauth-client-metadata',
       'http://chatgpt.com/client',
       'https://evil.example/client',
       'https://chatgpt.com.evil.example/client',

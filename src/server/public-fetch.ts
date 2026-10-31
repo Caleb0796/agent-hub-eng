@@ -9,10 +9,14 @@ export function isPublicAddress(address: string): boolean {
     return false;
   }
 }
+// Claude publishes one fixed CIMD document; nothing else on claude.ai is a client identity.
+const duetClientMetadata = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
+
 export function metadataUrl(input: string | URL | Request): URL {
   const url = new URL(
     typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
   );
+  if (url.href === duetClientMetadata) return url;
   if (
     url.protocol !== 'https:' ||
     url.username ||

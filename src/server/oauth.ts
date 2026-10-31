@@ -28,12 +28,15 @@ import { defaultCsp } from './security';
 // Observed from Muse's native DCR flow on 2026-10-29. Keep this callback exact;
 // other Meta domains, paths, ports and query strings are not enrollment targets.
 const museNativeCallback = 'https://agent.meta.ai/api/hatch/oauth/callback';
+// The only redirect_uri in Claude's CIMD document (https://claude.ai/oauth/mcp-oauth-client-metadata),
+// used by Duet's connector settings. Keep it exact like the Muse callback.
+const duetCallback = 'https://claude.ai/api/mcp/auth_callback';
 
 export function permittedRedirect(uri: string, env: Env): boolean {
   try {
     const url = new URL(uri);
     if (url.username || url.password || url.hash) return false;
-    if (uri === museNativeCallback) return true;
+    if (uri === museNativeCallback || uri === duetCallback) return true;
     if (
       env.APP_ENV !== 'production' &&
       url.protocol === 'http:' &&
@@ -52,6 +55,7 @@ export function permittedRedirect(uri: string, env: Env): boolean {
 }
 function clientPlatform(uri: string): Platform | undefined {
   if (uri === museNativeCallback) return 'muse';
+  if (uri === duetCallback) return 'duet';
   const host = new URL(uri).hostname;
   return host === 'chatgpt.com'
     ? 'dot'
@@ -231,7 +235,7 @@ function providerOptions(
         return {
           code: 'invalid_redirect_uri',
           description:
-            'Only verified Dot/Muse callbacks are supported so far (and loopback in local development). Duet callbacks are added after a real connection is observed.',
+            'Only verified Dot/Muse/Duet callbacks are supported so far (and loopback in local development).',
         };
     },
     tokenExchangeCallback: async (options) => {

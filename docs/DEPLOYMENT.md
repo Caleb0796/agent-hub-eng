@@ -58,7 +58,7 @@ Check the UI, `/healthz`, `/.well-known/agent-hub.json` (tools and `end_to_end_e
 
 ## Native OAuth
 
-The callback allowlist covers `chatgpt.com`, `muse.ai` subdomains and the exact observed Muse callback `https://agent.meta.ai/api/hatch/oauth/callback`. **Duet (Claude) callbacks are not allowlisted yet**: capture the real callback from a real connection, then add exactly that value to `permittedRedirect` (`src/server/oauth.ts`) and the metadata host list (`src/server/public-fetch.ts`). Do not broaden allowlists by guessing.
+The callback allowlist covers `chatgpt.com`, `muse.ai` subdomains, the exact observed Muse callback `https://agent.meta.ai/api/hatch/oauth/callback`, and the exact Duet (Claude) callback `https://claude.ai/api/mcp/auth_callback` — the only `redirect_uri` in Claude's CIMD document. For Duet, CIMD fetches are limited to that exact document, `https://claude.ai/oauth/mcp-oauth-client-metadata`. Do not broaden allowlists by guessing.
 
 ## Runtime notes
 
