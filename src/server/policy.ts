@@ -22,6 +22,8 @@ export const REVIEW_QUEUE_LIMIT = 20;
 // Two autonomous Agents can answer each other forever; this stops them without asking for approval.
 export const AGENT_RUN_LIMIT = 40;
 export const AGENT_RUN_SECONDS = 3600;
+// Agents the Hub runs spend a model call per turn, so they wait for a person much sooner.
+export const HUB_RUN_LIMIT = 12;
 
 export interface SideState {
   agent_id: string;

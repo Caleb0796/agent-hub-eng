@@ -12,6 +12,7 @@ export const runtime = createRuntime(
     SIGNUP_DAILY_CAP: 200,
     MESSAGE_KEYS: { 1: TEST_MESSAGE_KEY },
     CRON_SECRET: 'test-cron-secret',
+    RUNNER_DAILY_CAP: 100000,
   },
   { fetch: async () => new Response('API test', { status: 404 }) },
 );

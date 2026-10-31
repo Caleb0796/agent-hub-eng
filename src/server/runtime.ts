@@ -6,7 +6,14 @@ import './env';
 
 export type RuntimeSettings = Pick<
   Env,
-  'PUBLIC_ORIGIN' | 'APP_ENV' | 'SIGNUP_MODE' | 'SIGNUP_DAILY_CAP' | 'MESSAGE_KEYS' | 'CRON_SECRET'
+  | 'PUBLIC_ORIGIN'
+  | 'APP_ENV'
+  | 'SIGNUP_MODE'
+  | 'SIGNUP_DAILY_CAP'
+  | 'MESSAGE_KEYS'
+  | 'CRON_SECRET'
+  | 'MUSE'
+  | 'RUNNER_DAILY_CAP'
 >;
 
 export function createRuntime(
@@ -20,6 +27,11 @@ export function createRuntime(
     DB: connection,
     OAUTH_KV: new OAuthStore(connection) as unknown as KVNamespace,
     ASSETS: assets,
+    BACKGROUND:
+      waitUntil ??
+      ((promise) => {
+        void promise.catch(() => undefined);
+      }),
   });
   const env = bindings(new Connection(client));
   let oauthQueue = Promise.resolve();

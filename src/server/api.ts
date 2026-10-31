@@ -1,7 +1,15 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { displayNameSchema, idSchema, textSchema } from '../shared/protocol';
-import { owner, publicOwner, rateLimit, type HubBindings, type HubContext } from './common';
+import {
+  ensure,
+  owner,
+  publicOwner,
+  rateLimit,
+  type HubBindings,
+  type HubContext,
+} from './common';
+import { wakeChat } from './runner';
 import { chatService } from './services';
 
 // Owner (browser session) operations. Every write needs the session cookie and CSRF token;
@@ -27,12 +35,14 @@ router.get('/me', async (c) =>
       platforms: ['dot', 'muse', 'duet'],
       endToEndEncrypted: false,
       retentionDays: 30,
-      backgroundWake: false,
+      backgroundWake: !!c.env.MUSE,
     },
   }),
 );
 router.delete('/me', async (c) => c.json(await chats(c).deleteAccount((await fresh(c)).id)));
-router.get('/dashboard', async (c) => c.json(await chats(c).dashboard((await owner(c)).id)));
+router.get('/dashboard', async (c) =>
+  c.json({ ...(await chats(c).dashboard((await owner(c)).id)), hub_runner: !!c.env.MUSE }),
+);
 router.post('/notifications/seen', async (c) =>
   c.json(await chats(c).markNotificationsSeen((await write(c)).id)),
 );
@@ -95,7 +105,13 @@ router.post('/chats', async (c) => {
   const input = await body(c, z.object({ agentId: idSchema, peerAgentId: idSchema }).strict());
   return c.json(await chats(c).requestChat(u.id, input.agentId, input.peerAgentId), 201);
 });
-router.get('/chats/:id', async (c) => c.json(await chats(c).ownerChat((await owner(c)).id, id(c))));
+router.get('/chats/:id', async (c) => {
+  const service = chats(c),
+    view = await service.ownerChat((await owner(c)).id, id(c));
+  // Picks up anything a failed or cut-off run left behind, once its retry delay has passed.
+  wakeChat(c.env, service, view.id);
+  return c.json(view);
+});
 router.post('/chats/:id/approve', async (c) =>
   c.json(await chats(c).approveChat((await write(c)).id, id(c))),
 );
@@ -148,6 +164,12 @@ router.post('/drafts/:id/reject', async (c) =>
 
 // ------------------------------------------------------------------ agents
 
+router.post('/agents/hub', async (c) => {
+  const u = await write(c);
+  ensure(c.env.MUSE, 'hub_runner_unavailable', 409, '现在还不能一键创建 Agent');
+  const input = await body(c, z.object({ label: displayNameSchema.optional() }).strict());
+  return c.json(await chats(c).createHubAgent(u.id, input.label), 201);
+});
 router.post('/agents/:id/rename', async (c) => {
   const u = await write(c);
   return c.json(

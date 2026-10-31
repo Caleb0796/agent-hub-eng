@@ -3,13 +3,51 @@ import {
   startRegistration,
   type PublicKeyCredentialCreationOptionsJSON,
 } from '@simplewebauthn/browser';
-import { Fingerprint, Plus, RefreshCw, Trash2, Unplug } from 'lucide-react';
-import { api } from '../api';
+import { Fingerprint, Plus, RefreshCw, Sparkles, Trash2, Unplug } from 'lucide-react';
+import { api, navigate } from '../api';
 import type { Dashboard, Run } from '../types';
 import { Avatar, Badge, CopyButton, Empty, platformName, when } from '../ui';
 
 const musePrompt = (origin: string) =>
   `请按 ${origin}/connect/muse 的说明，把你连接到我的 Agent Hub。使用官方连接器和安全凭证存储，授权页由我本人确认；连接后先调用 hub_whoami。`;
+
+const runErrors: Record<string, string> = {
+  model_unavailable: '刚才没能回复，稍后会自动再试。',
+  budget_exhausted: '今天的回复次数用完了，稍后会自动恢复。',
+  bad_output: '刚才有一条没能回复。再发一条消息就好。',
+};
+export const runErrorText = (code: string | null) => (code ? (runErrors[code] ?? '') : '');
+
+/** The default way to get an Agent: nothing to install, connect or configure. */
+export function CreateAgent({
+  run,
+  busy,
+  onCreated,
+  label = '创建我的 Agent',
+}: {
+  run: Run;
+  busy: boolean;
+  onCreated?: (id: string) => Promise<void> | void;
+  label?: string;
+}) {
+  return (
+    <>
+      <button
+        className="button primary"
+        disabled={busy}
+        onClick={() =>
+          void run(async () => {
+            const agent = await api<{ id: string }>('/api/agents/hub', 'POST', {});
+            await onCreated?.(agent.id);
+          })
+        }
+      >
+        <Sparkles size={16} /> {label}
+      </button>
+      <p className="fine-print">它由 Muse Spark 驱动，不用安装。消息会发给 Meta 的模型来生成回复。</p>
+    </>
+  );
+}
 
 /** One screen of instructions for the current platform. */
 export function ConnectGuide() {
@@ -72,11 +110,18 @@ export function AgentsPage({ data, run, busy }: { data: Dashboard; run: Run; bus
           <p>它们替你聊天做事，但不能替你加好友或改设置。</p>
         </div>
       </div>
-      {!agents.length && (
-        <Empty icon={<Plus size={22} />} title="还没有连接 Agent">
-          按下面的说明连接第一个 Agent。
-        </Empty>
-      )}
+      {!agents.length &&
+        (data.hub_runner ? (
+          <section className="panel">
+            <h2>给自己创建一个 Agent</h2>
+            <p className="muted">它会替你和朋友、朋友的 Agent 聊天，帮你把事情办了。</p>
+            <CreateAgent run={run} busy={busy} onCreated={() => navigate('/contacts')} />
+          </section>
+        ) : (
+          <Empty icon={<Plus size={22} />} title="还没有连接 Agent">
+            按下面的说明连接第一个 Agent。
+          </Empty>
+        ))}
       {agents.length > 0 && (
         <section className="section">
           {agents.map((a) => (
@@ -107,10 +152,12 @@ export function AgentsPage({ data, run, busy }: { data: Dashboard; run: Run; bus
                   <strong>{a.label}</strong>
                 )}
                 <small>
-                  {platformName(a.platform)}，最近活动 {when(a.last_seen_at)}
+                  {a.runner === 'hub'
+                    ? runErrorText(a.run_error) || '由 Hub 调用 Muse Spark 代你回复'
+                    : `${platformName(a.platform)}，最近活动 ${when(a.last_seen_at)}`}
                 </small>
               </div>
-              <Badge status={a.connection} />
+              {a.runner === 'platform' && <Badge status={a.connection} />}
               <div className="row-actions">
                 <button
                   className="text-button"
@@ -121,22 +168,24 @@ export function AgentsPage({ data, run, busy }: { data: Dashboard; run: Run; bus
                 >
                   改名
                 </button>
-                <button
-                  className="text-button"
-                  disabled={busy}
-                  onClick={() => {
-                    if (
-                      confirm(
-                        '重置连接会让这个 Agent 的旧授权立即失效（例如怀疑 token 被盗时）。聊天和历史保留，之后在平台上重新授权即可。要重置吗？',
+                {a.runner === 'platform' && (
+                  <button
+                    className="text-button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        confirm(
+                          '重置连接会让这个 Agent 的旧授权立即失效（例如怀疑 token 被盗时）。聊天和历史保留，之后在平台上重新授权即可。要重置吗？',
+                        )
                       )
-                    )
-                      void run(async () => {
-                        await api(`/api/agents/${a.id}/reset`, 'POST');
-                      });
-                  }}
-                >
-                  <RefreshCw size={14} /> 重置连接
-                </button>
+                        void run(async () => {
+                          await api(`/api/agents/${a.id}/reset`, 'POST');
+                        });
+                    }}
+                  >
+                    <RefreshCw size={14} /> 重置连接
+                  </button>
+                )}
                 <button
                   className="text-button danger"
                   disabled={busy}
@@ -154,7 +203,14 @@ export function AgentsPage({ data, run, busy }: { data: Dashboard; run: Run; bus
           ))}
         </section>
       )}
-      <ConnectGuide />
+      {data.hub_runner ? (
+        <details className="section">
+          <summary>已经在用 Muse、Dot 或 Duet？把它连进来</summary>
+          <ConnectGuide />
+        </details>
+      ) : (
+        <ConnectGuide />
+      )}
       {retired.length > 0 && (
         <section className="section">
           <h2>已退役</h2>

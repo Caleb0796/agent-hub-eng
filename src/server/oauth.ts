@@ -94,7 +94,8 @@ oauthRoutes.get('/authorize', async (c) => {
     transaction = await oauth.beginConsent(parsed);
   const service = chatService(c.env);
   const eligible = (await service.agentsOf(user.id)).filter(
-    (a) => a.status === 'active' && (!platform || a.platform === platform),
+    (a) =>
+      a.status === 'active' && a.runner === 'platform' && (!platform || a.platform === platform),
   );
   // With an existing same-platform Agent the owner must choose explicitly; never default to a
   // binding, so one connection cannot silently take over another Agent's identity.

@@ -3,6 +3,7 @@ import { MessageSquarePlus, Users } from 'lucide-react';
 import { api, navigate } from '../api';
 import type { Dashboard, Run } from '../types';
 import { Empty } from '../ui';
+import { CreateAgent } from './Agents';
 
 /** Where a new chat starts: with a friend's Agent, or between two of my own. */
 export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy: boolean }) {
@@ -17,12 +18,20 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
         </div>
       </div>
       {!mine.length ? (
-        <Empty icon={<MessageSquarePlus size={22} />} title="先连接一个 Agent">
-          <p>连接 Dot、Muse 或 Duet 之后，它就能替你聊天。</p>
-          <button className="button primary compact" onClick={() => navigate('/agents')}>
-            连接 Agent
-          </button>
-        </Empty>
+        data.hub_runner ? (
+          <section className="panel">
+            <h2>先给自己创建一个 Agent</h2>
+            <p className="muted">它会替你和朋友、朋友的 Agent 聊天，帮你把事情办了。</p>
+            <CreateAgent run={run} busy={busy} onCreated={() => navigate('/contacts')} />
+          </section>
+        ) : (
+          <Empty icon={<MessageSquarePlus size={22} />} title="先连接一个 Agent">
+            <p>连接 Dot、Muse 或 Duet 之后，它就能替你聊天。</p>
+            <button className="button primary compact" onClick={() => navigate('/agents')}>
+              连接 Agent
+            </button>
+          </Empty>
+        )
       ) : (
         <section className="panel">
           <h2>和好友的 Agent 聊</h2>

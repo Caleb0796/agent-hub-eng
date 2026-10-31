@@ -25,6 +25,8 @@ export const MAX_ACTIVE_INVITES = 5;
 export const REQUEST_COOLDOWN = 86400;
 const MAX_AGENTS = 8;
 const DELETED_OWNER = '已注销用户';
+const RUN_CONTEXT_MESSAGES = 40;
+const RUN_CONTEXT_CHARS = 12_000;
 
 export interface AgentRow {
   id: string;
@@ -40,6 +42,10 @@ export interface AgentRow {
   connection_changed_at: number | null;
   created_at: number;
   revoked_at: number | null;
+  runner: 'platform' | 'hub';
+  run_lease_until: number | null;
+  run_retry_at: number | null;
+  run_error: string | null;
 }
 interface ChatRow {
   id: string;
@@ -62,6 +68,7 @@ interface SideRow {
   paused_at: number | null;
   cleared_before: number;
   delivered_seq: number;
+  handled_seq: number;
   last_request_at: number | null;
 }
 interface MessageRow {
@@ -160,12 +167,15 @@ export interface ChatServiceOptions {
   now?: () => number;
   inboxWaitMs?: number;
   pollMs?: number;
+  /** Called after a message is stored, to wake Agents the Hub runs. */
+  afterMessage?: (chatId: string) => void;
 }
 
 export class ChatService {
   private readonly now: () => number;
   private readonly inboxWaitMs: number;
   private readonly pollMs: number;
+  private readonly afterMessage?: (chatId: string) => void;
   readonly origin: string;
 
   constructor(
@@ -177,6 +187,7 @@ export class ChatService {
     this.now = options.now ?? (() => Math.floor(Date.now() / 1000));
     this.inboxWaitMs = options.inboxWaitMs ?? 20_000;
     this.pollMs = options.pollMs ?? 1_000;
+    this.afterMessage = options.afterMessage;
   }
 
   private sql(text: string, ...args: unknown[]): Statement {
@@ -269,6 +280,19 @@ export class ChatService {
     return this.agent(id);
   }
 
+  /** An Agent the Hub runs itself, so it works with one click and no platform connection. */
+  async createHubAgent(ownerId: string, label?: string): Promise<AgentRow> {
+    const created = await this.createAgent(ownerId, 'muse', label);
+    const at = this.now();
+    await this.sql(
+      "UPDATE agents SET runner='hub',authorized_at=?,last_seen_at=? WHERE id=?",
+      at,
+      at,
+      created.id,
+    ).run();
+    return this.agent(created.id);
+  }
+
   async renameAgent(ownerId: string, id: string, label: string) {
     await this.ownAgent(ownerId, id, false);
     await this.sql('UPDATE agents SET label=? WHERE id=? AND owner_id=?', label, id, ownerId).run();
@@ -278,6 +302,7 @@ export class ChatService {
   /** Records a completed OAuth authorization and returns the auth_version for the new token. */
   async onAuthorized(ownerId: string, agentId: string, clientId: string): Promise<AgentRow> {
     const before = await this.ownAgent(ownerId, agentId);
+    ensure(before.runner === 'platform', 'hub_run_agent', 409, '这个 Agent 由 Hub 运行，不需要连接');
     const changed =
       before.reset_pending === 1 ||
       (!!before.oauth_client_id && before.oauth_client_id !== clientId);
@@ -318,7 +343,8 @@ export class ChatService {
   }
 
   async resetConnection(ownerId: string, agentId: string) {
-    await this.ownAgent(ownerId, agentId);
+    const agent = await this.ownAgent(ownerId, agentId);
+    ensure(agent.runner === 'platform', 'hub_run_agent', 409, '这个 Agent 由 Hub 运行，不需要连接');
     await this.connection.batch([
       this.sql(
         'UPDATE agents SET auth_version=auth_version+1,reset_pending=1 WHERE id=? AND owner_id=?',
@@ -1271,7 +1297,9 @@ export class ChatService {
       m.agentId,
       m.key,
     ).run();
-    return r.meta.changes === 1;
+    if (r.meta.changes !== 1) return false;
+    this.afterMessage?.(m.chatId);
+    return true;
   }
 
   /** Owners speak as themselves. While paused it is stored and delivered later. */
@@ -1530,6 +1558,138 @@ export class ChatService {
     return out;
   }
 
+  // ---------------------------------------------------------------- Agents the Hub runs
+
+  async claimRun(agentId: string, seconds: number): Promise<boolean> {
+    const at = this.now();
+    const r = await this.sql(
+      `UPDATE agents SET run_lease_until=? WHERE id=? AND runner='hub' AND status='active'
+        AND (run_lease_until IS NULL OR run_lease_until<=?) AND (run_retry_at IS NULL OR run_retry_at<=?)`,
+      at + seconds,
+      agentId,
+      at,
+      at,
+    ).run();
+    return r.meta.changes === 1;
+  }
+
+  async finishRun(agentId: string, error: string | null, retrySeconds: number): Promise<void> {
+    const at = this.now();
+    await this.sql(
+      'UPDATE agents SET run_lease_until=NULL,run_error=?,run_retry_at=?,last_seen_at=? WHERE id=?',
+      error,
+      retrySeconds ? at + retrySeconds : null,
+      at,
+      agentId,
+    ).run();
+  }
+
+  // Something from someone else this Agent has not finished with, in a chat that can deliver it.
+  private static readonly WAITING = `a.runner='hub' AND a.status='active'
+    AND EXISTS(SELECT 1 FROM chats c WHERE c.id=s.chat_id AND c.status='open')
+    AND NOT EXISTS(SELECT 1 FROM chat_sides p WHERE p.chat_id=s.chat_id AND p.paused_at IS NOT NULL)
+    AND EXISTS(SELECT 1 FROM messages m WHERE m.chat_id=s.chat_id AND m.seq>s.handled_seq
+      AND m.withheld_at IS NULL AND m.expires_at>? AND (m.sender_agent_id IS NULL OR m.sender_agent_id<>s.agent_id))`;
+
+  async runnersToWake(chatId: string): Promise<string[]> {
+    const at = this.now();
+    const rows = await this.sql(
+      `SELECT a.id FROM chat_sides s JOIN agents a ON a.id=s.agent_id WHERE s.chat_id=?
+        AND (a.run_lease_until IS NULL OR a.run_lease_until<=?) AND (a.run_retry_at IS NULL OR a.run_retry_at<=?)
+        AND ${ChatService.WAITING}`,
+      chatId,
+      at,
+      at,
+      at,
+    ).all<{ id: string }>();
+    return rows.results.map((r) => r.id);
+  }
+
+  async hasWork(agentId: string): Promise<boolean> {
+    return !!(await this.sql(
+      `SELECT 1 FROM chat_sides s JOIN agents a ON a.id=s.agent_id WHERE s.agent_id=? AND ${ChatService.WAITING} LIMIT 1`,
+      agentId,
+      this.now(),
+    ).first());
+  }
+
+  /** Takes new messages like any inbox read, then returns what still needs an answer. */
+  async takeWork(agentId: string) {
+    await this.takeOnce(agentId, 50);
+    const at = this.now();
+    const sides = (
+      await this.sql(
+        'SELECT chat_id,handled_seq,delivered_seq FROM chat_sides WHERE agent_id=? AND handled_seq<delivered_seq',
+        agentId,
+      ).all<{ chat_id: string; handled_seq: number; delivered_seq: number }>()
+    ).results;
+    const out = [];
+    for (const side of sides) {
+      const loaded = await this.load(side.chat_id);
+      if (!canDeliver(loaded.state, { withheld_at: null, expires_at: at + 1 }, at)) continue;
+      const rows = (
+        await this.sql(
+          `SELECT * FROM messages WHERE chat_id=? AND expires_at>? AND withheld_at IS NULL AND seq<=?
+            ORDER BY seq DESC LIMIT ?`,
+          side.chat_id,
+          at,
+          side.delivered_seq,
+          RUN_CONTEXT_MESSAGES,
+        ).all<MessageRow>()
+      ).results.reverse();
+      const roster = await this.roster(loaded);
+      const view = (m: MessageRow) => {
+        const v = this.messageView(m, loaded, roster, agentId);
+        return {
+          sender_name: v.sender_name,
+          sender_kind: v.sender_kind,
+          from_my_owner: v.from_my_owner,
+          untrusted: v.sender_agent_id !== agentId && v.untrusted,
+          is_me: v.sender_agent_id === agentId,
+          mentions_me: v.mentions_me,
+          text: v.text,
+          sent_at: v.sent_at,
+        };
+      };
+      const fresh = rows
+        .filter((m) => m.seq > side.handled_seq && m.sender_agent_id !== agentId)
+        .map(view);
+      if (!fresh.length) {
+        await this.markHandled(agentId, side.chat_id, side.delivered_seq);
+        continue;
+      }
+      // Newest first, so a long chat keeps its most recent context within the budget.
+      const earlier: ReturnType<typeof view>[] = [];
+      let budget = RUN_CONTEXT_CHARS;
+      for (const m of rows.filter((x) => x.seq <= side.handled_seq).reverse()) {
+        const item = view(m);
+        budget -= item.text.length;
+        if (budget < 0) break;
+        earlier.unshift(item);
+      }
+      const me = loaded.agents[agentId];
+      out.push({
+        chat_id: side.chat_id,
+        upto: side.delivered_seq,
+        agent_run: await this.recentAgentRun(side.chat_id, at),
+        me: { name: me.label, owner_name: rosterName(roster, 'owner', me.owner_id) },
+        participants: roster.map((r) => this.participant(r, loaded, agentId)),
+        earlier,
+        fresh,
+      });
+    }
+    return out;
+  }
+
+  async markHandled(agentId: string, chatId: string, seq: number): Promise<void> {
+    await this.sql(
+      'UPDATE chat_sides SET handled_seq=MAX(handled_seq,?) WHERE chat_id=? AND agent_id=?',
+      seq,
+      chatId,
+      agentId,
+    ).run();
+  }
+
   /** Everyone in a chat: both Agents and their owners. Owner ids never leave the server. */
   private async roster(loaded: Loaded): Promise<RosterEntry[]> {
     const users = (
@@ -1744,6 +1904,10 @@ export class ChatService {
         paused: !!s.paused_at,
         review_required: !!s.review_required,
         connection_changed_at: a.connection_changed_at,
+        runner: a.runner,
+        last_seen_at: a.last_seen_at,
+        working: !!a.run_lease_until && a.run_lease_until > at,
+        run_error: s.owner_id === ownerId ? a.run_error : null,
       };
     });
     return {
@@ -1843,6 +2007,8 @@ export class ChatService {
               : ('authorized' as const),
       last_seen_at: a.last_seen_at,
       created_at: a.created_at,
+      runner: a.runner,
+      run_error: a.run_error,
     }));
     // Polled every few seconds, so its query count must not grow with the number of chats.
     const MY_CHATS = 'SELECT chat_id FROM chat_sides WHERE owner_id=?';

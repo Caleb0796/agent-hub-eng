@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { databaseClient } from './storage';
+import { museClient } from './runner';
 import { createRuntime } from './runtime';
 import { messageKeysFrom } from './vault';
 
@@ -59,6 +60,14 @@ export function runtimeFromEnvironment(waitUntil?: (promise: Promise<unknown>) =
       SIGNUP_DAILY_CAP: Number(process.env.SIGNUP_DAILY_CAP ?? 200),
       MESSAGE_KEYS,
       CRON_SECRET: process.env.CRON_SECRET,
+      RUNNER_DAILY_CAP: Number(process.env.RUNNER_DAILY_CAP ?? 500),
+      MUSE: process.env.MUSE_API_KEY
+        ? museClient({
+            apiKey: process.env.MUSE_API_KEY,
+            base: process.env.MUSE_API_BASE ?? 'https://api.meta.ai/v1',
+            model: process.env.MUSE_MODEL ?? 'muse-spark-1.1',
+          })
+        : undefined,
     },
     fileAssets(),
     waitUntil,

@@ -4,7 +4,7 @@ import { api, ApiError, navigate } from '../api';
 import { Auth } from '../Auth';
 import type { Dashboard, OwnerView, Run } from '../types';
 import { platformName, when } from '../ui';
-import { ConnectGuide } from './Agents';
+import { ConnectGuide, CreateAgent } from './Agents';
 
 type Preview = {
   inviter_name: string;
@@ -54,6 +54,7 @@ export function InvitePage({
       .catch((e: Error) => setError(e.message));
   }, []);
   const mine = data?.agents.filter((a) => a.status === 'active') ?? [];
+  const needsAgent = !!preview?.agent;
   useEffect(() => {
     if (!agentId && mine.length === 1) setAgentId(mine[0].id);
   }, [mine.length]);
@@ -64,17 +65,41 @@ export function InvitePage({
       </div>
     );
   if (!preview) return <div className="skeleton" />;
+  const accept = async (chosen: string) => {
+    setAcceptError('');
+    try {
+      const accepted = await api<{ chat_id: string | null }>('/api/invites/accept', 'POST', {
+        token: token(),
+        agentId: needsAgent ? chosen : null,
+      });
+      navigate(accepted.chat_id ? `/chats/${accepted.chat_id}` : '/contacts');
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'reauthentication_required') throw e;
+      setAcceptError(e instanceof Error ? e.message : '操作未完成');
+    }
+  };
   if (!owner) return <Auth onLogin={onLogin} intro={<PreviewCard preview={preview} />} />;
-  const needsAgent = !!preview.agent;
   return (
     <main className="workspace">
       <PreviewCard preview={preview} />
-      {needsAgent && !mine.length && (
-        <>
-          <p className="muted">先连接一个你的 Agent。连接完成后这里会自动更新，链接不会失效。</p>
-          <ConnectGuide />
-        </>
-      )}
+      {needsAgent &&
+        !mine.length &&
+        (data?.hub_runner ? (
+          <section className="panel">
+            <p className="muted">你还没有 Agent。创建一个，它就能马上和对方聊起来。</p>
+            {acceptError && (
+              <div className="error" role="alert">
+                {acceptError}
+              </div>
+            )}
+            <CreateAgent run={run} busy={busy} onCreated={accept} label="创建 Agent 并开始聊天" />
+          </section>
+        ) : (
+          <>
+            <p className="muted">先连接一个你的 Agent。连接完成后这里会自动更新，链接不会失效。</p>
+            <ConnectGuide />
+          </>
+        ))}
       {(!needsAgent || mine.length > 0) && (
         <section className="panel">
           {needsAgent && (
@@ -103,25 +128,7 @@ export function InvitePage({
           <button
             className="button primary"
             disabled={busy || (needsAgent && !agentId)}
-            onClick={() =>
-              void run(async () => {
-                setAcceptError('');
-                try {
-                  const accepted = await api<{ chat_id: string | null }>(
-                    '/api/invites/accept',
-                    'POST',
-                    {
-                      token: token(),
-                      agentId: needsAgent ? agentId : null,
-                    },
-                  );
-                  navigate(accepted.chat_id ? `/chats/${accepted.chat_id}` : '/contacts');
-                } catch (e) {
-                  if (e instanceof ApiError && e.code === 'reauthentication_required') throw e;
-                  setAcceptError(e instanceof Error ? e.message : '操作未完成');
-                }
-              })
-            }
+            onClick={() => void run(() => accept(agentId))}
           >
             {needsAgent ? '开始聊天' : '加为好友'}
           </button>

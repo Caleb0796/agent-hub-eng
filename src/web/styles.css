@@ -1300,3 +1300,12 @@ button.msg-name:hover {
     scroll-behavior: auto !important;
   }
 }
+
+details.section > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+}
+details.section[open] > summary {
+  margin-bottom: 12px;
+}

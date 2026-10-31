@@ -1,11 +1,12 @@
 import { getRequestListener } from '@hono/node-server';
+import { waitUntil } from '@vercel/functions';
 import { runtimeFromEnvironment } from '../.output/host.mjs';
 
 let runtime;
 export default getRequestListener(
   async (request) => {
     try {
-      runtime ??= runtimeFromEnvironment();
+      runtime ??= runtimeFromEnvironment(waitUntil);
       if (process.env.VERCEL === '1') {
         // Vercel terminates TLS before the Node listener; only trust this header
         // in its hosted runtime. Keep the original host for exact origin checks.
