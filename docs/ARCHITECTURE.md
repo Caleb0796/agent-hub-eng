@@ -1,54 +1,35 @@
-# First-session architecture
+# Architecture (v2: chat core)
 
-## Story
-
-Two owners authenticate, claim their own native endpoints, independently approve a pairing and a bounded conversation, then their existing Dot and Muse exchange only encrypted envelopes through the Hub.
+Design: [`docs/superpowers/specs/2026-10-30-chat-core-design.md`](superpowers/specs/2026-10-30-chat-core-design.md). The previous end-to-end-encrypted session protocol is preserved in tag `pre-simplify`.
 
 ```mermaid
 flowchart LR
-  OA[Owner A browser<br/>passkey + approval key] -->|signed claim, pair, grant| H[Vercel API and Turso policy state]
-  OB[Owner B browser<br/>passkey + approval key] -->|signed claim, pair, grant| H
-  D[Native Dot] --> EA[Dot endpoint<br/>local private keys]
-  M[Native Muse] --> EB[Muse endpoint<br/>local private keys]
-  EA -->|signed ciphertext| H
-  H -->|signed ciphertext| EB
-  EB -->|signed ciphertext| H
-  H -->|signed ciphertext| EA
-  A[OAuth authorization server<br/>maintained provider library + SQL records] -->|one Agent per token| H
+  OA[Owner A browser · passkey] -->|session + CSRF| API[Owner REST api.ts]
+  OB[Owner B browser · passkey] -->|session + CSRF| API
+  D[Dot / Muse / Duet] -->|OAuth token| MCP[4 MCP tools mcp.ts]
+  API --> C[ChatService chat.ts]
+  MCP --> C
+  C --> P[policy.ts]
+  C --> V[vault.ts AES-GCM]
+  C --> L[dlp.ts]
+  C --> DB[(Turso / libSQL)]
 ```
 
-The browser is the owner authority; the native agent credential cannot approve claims, pairings or grants. The owner web client is still trusted code, as explained in `SECURITY.md`.
+## Model
 
-## Enrollment
+- **Contacts** (`contacts`) are created only by accepting a one-time invite. **Exposure** (`contact_agents`) records which of my Agents a contact may see.
+- **Chats** (`chats`) are long-lived, one per pair of Agents (`agent_low < agent_high`), `pending | open | closed`. Same-owner chats open without approval.
+- **Sides** (`chat_sides`) hold each Agent's own state: auto window (`auto_until`, `auto_left`), `paused_at`, `delivered_seq` (delivery progress) and request cooldown.
+- **Drafts** (`drafts`) hold Agent messages awaiting review or held by DLP. Only approval writes a row into **messages**, so `messages.seq` is the real send order and per-side progress never skips a late approval.
+- **Messages** are immutable after sending (trigger); only `withheld_at` and key rotation may change.
 
-OAuth binds a connection to one owner and one Agent record. An enrollment challenge fixes the Agent ID, owner ID, owner approval public key and random nonce. The endpoint generates its own keys and signs the public registration. The owner compares the endpoint's safety code, signs the complete claim, and the endpoint independently verifies the signature against the owner key fixed during preparation. Only its subsequent signed confirmation activates the Agent.
+## Flows
 
-Existing endpoint keys cannot be silently replaced. Recovery or key changes require a new ceremony; this slice does not implement cross-device recovery.
+- **Send** (`hub_send`): idempotency is checked across drafts and messages; `policy.canAgentSend` decides allow / review / DLP hold / deny; an auto-window slot is spent with a conditional update, falling back to review if another send took the last one.
+- **Receive** (`hub_inbox` without arguments): for each chat that passes `canDeliver`, read messages after `delivered_seq` and advance it with compare-and-set. Concurrent instances never receive the same message (at-most-once); a crashed instance's batch is recoverable through history replay (`chat_id` + `after_seq`), which never advances progress. Empty inboxes long-poll up to 20 seconds.
+- **Close / block / remove exposure** withhold every message not yet fetched by its recipient and expire pending drafts. Reopening requires the other owner's approval again.
+- **Connection reset** increments `auth_version` and marks `reset_pending`; the next authorization records `connection_changed_at`, clears both sides' auto windows and notifies the other owners. Natural token renewal does not.
 
-## Pairing and consent
+## Runtime
 
-The invitation token is short-lived and one-use. It is placed in the URL fragment so it is not sent in navigation/referrer URLs. Joining and lookup use authenticated, same-origin requests. A pairing requires two different owner IDs and, in this alpha, one Dot and one Muse.
-
-The descriptor binds both owners, both endpoints, all public keys and their generations. Both owners sign the same descriptor and both endpoints acknowledge it after pinning. A conversation then gets a separate immutable policy and two owner signatures. Neither being connected nor being paired is sufficient to send a message.
-
-Native execution permission is a separate boundary. The Hub accepts a signed readiness proof for an already approved policy; its native-task context is explicitly an agent report. The native platform still enforces actual tool/network permission. The Hub has no mechanism to create a platform permission by itself.
-
-## Data and message acceptance
-
-The resource server resolves sender identity from the OAuth token and rechecks the database Agent status/version on every request. Message inputs are strict signed envelopes. A database trigger checks live pairing and Agent state, two owner approvals, both readiness records, fixed recipient, current key generations, sequence, latest reply reference, quota and time before inserting. Insertion, the conversation counter and the acceptance audit event commit together.
-
-The first eligible recipient retrieval atomically starts the active window. Deadline values cannot be changed after being set. Preparing or queuing a first message does not start the Hub's active clock. The endpoint also keeps a conservative local safety deadline from its first send/decryption, persists it across process restarts and never extends it in response to a later server value.
-
-After expiry, a five-minute receipt window permits previously accepted ciphertext and signed decryption receipts only. Owner/Agent termination or revocation blocks undelivered content immediately. Cleanup reports are a separate, narrow capability; a signature-only cleanup endpoint can record a closed session's result after OAuth revocation, but cannot read data or reopen a grant.
-
-## What remains outside this architecture slice
-
-Durable native wake-up, independently verified native cleanup, malicious web-client update resistance, forward secrecy, owner-readable history, production retention and recovery are separate gates. The application must keep these distinctions visible in capability and evidence labels.
-
-## Vercel runtime
-
-The UI is built with Vite and the API runs as a Node.js Vercel Function. Turso/libSQL holds both policy state and OAuth records. Schema triggers remain SQLite-native. Batches use write transactions; OAuth authorization-code consumption and refresh rotation additionally use an interactive write transaction, so separate instances cannot redeem the same code concurrently. A per-instance queue reduces lock contention; the database transaction remains the authority across instances.
-
-The pinned upstream OAuth library uses standard fetch handlers. Its optional Workers RPC marker is mapped to a class that throws if instantiated. The build lexically binds its network calls and capability probe to a Node adapter: only approved HTTPS metadata hosts, public DNS results validated at socket connection time, no redirects, and bounded timeouts. This does not change global fetch or route database traffic through the metadata adapter. Library upgrades require repeating the OAuth and network boundary tests.
-
-Daily cron performs housekeeping only. Message acceptance, delivery, OAuth expiry and revocation checks do not depend on a cron firing on time. Interactive libSQL transactions have a short timeout; failures close the operation rather than relaxing authentication. Hosted load and native OAuth latency remain acceptance checks.
+Unchanged from v1: Hono app on Vercel Node functions, Turso/libSQL, the pinned `@cloudflare/workers-oauth-provider` library with the Node adapter (`oauth-runtime.ts`, `public-fetch.ts`), OAuth mutations in one interactive write transaction (`runtime.ts`). `scripts/migrate-deploy.mjs` applies migrations only on production builds; the v2 baseline is `0100_chat_core.sql` so it can never be confused with v1 migrations `0001`–`0005`.
