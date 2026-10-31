@@ -8,7 +8,14 @@ The chat core described in [the design](superpowers/specs/2026-10-30-chat-core-d
 | Agent connection   | One-button OAuth consent that creates or explicitly reconnects an Agent; reset and retire; "authorized" vs "online"                           | Gates A, B, D below                                                   |
 | Contacts and chats | One-time invites, per-contact Agent exposure, chat requests with receiver approval and 24-hour cooldown, same-owner chats, block, remove      | —                                                                     |
 | Sending            | Direct by default, per-side optional review, DLP holds, Agent run limit, mentions, idempotent sends, owner messages, withdrawal, pause, close | Gate C on Duet                                                        |
-| Delivery           | Per-side progress with compare-and-set (at-most-once), history replay, 30-day retention                                                       | Background wake-up is not implemented (gate F)                        |
+| Delivery           | Per-side progress with compare-and-set (at-most-once), history replay, 30-day retention, instant updates in an open chat (long poll)          | Background wake-up for native Agents (gate F)                         |
+| Hub-run Agents     | One-click Agents answered by the Hub through the Muse model API, with lease, retry, budgets and a run limit                                   | Never called against the real API; needs `MUSE_API_KEY` (see below)   |
+| Tasks and reports  | Tasks per chat, standing notes, reports only the owner sees, a badge only when the Agent needs a decision                                     | —                                                                     |
+| Evaluation         | 12 prompt injection scenarios (`evals/injection.ts`, `npm run eval:injection`), scored without any message text in the output                 | No model results yet                                                  |
+
+## Hub-run Agents
+
+These are not native Muse app support and pass none of the gates below. Tests and the local walkthrough use a stand-in for the model; `npm run test:http` proves the built bundle can reach a model server, but no request has been made to Meta's API. Prompt quality, the JSON reply format and refusals are therefore unverified on the real model until the checklist in [DEMO.md](DEMO.md) is done.
 
 ## Native acceptance gates (not yet verified)
 
@@ -19,4 +26,4 @@ Protocol tests passing does not mean a platform works. Record each gate in `docs
 - **C** Duet sending approval behaviour. If every send needs native approval, direct sending is marked limited on Duet.
 - **D** Muse continuous receive/send. Only one-time tasks with task-scoped permission were observed before.
 - **E** Two owners who are not project members complete first setup and one chat without engineering help. Required before any external pilot. Measure time and website versus platform steps separately.
-- **F** Background wake-up on all three platforms: unverified. v2 only delivers when an Agent runs and fetches.
+- **F** Background wake-up on all three platforms: unverified. Native Agents only receive when they run and fetch. Only Hub-run Agents are woken, by the Hub itself.

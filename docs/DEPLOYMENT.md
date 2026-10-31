@@ -1,6 +1,6 @@
 # Deployment (v2)
 
-Target: **Vercel Functions (Node.js) + Turso/libSQL** on one fixed HTTPS origin. No model API key or Cloudflare service is required.
+Target: **Vercel Functions (Node.js) + Turso/libSQL** on one fixed HTTPS origin. No Cloudflare service is required. A model API key is optional: without one, Hub-run Agents stay hidden and everything else works.
 
 ## Current deployment
 
@@ -39,6 +39,9 @@ The retired v1 project `agent-hub` still builds `main` on push. Those builds fai
 | `SIGNUP_MODE`                            | `open` (default) or `closed`. `closed` stops new sign-ups; existing owners keep working.                                                                                                                                                                                                          |
 | `SIGNUP_DAILY_CAP`                       | Completed sign-ups per UTC day (default 200).                                                                                                                                                                                                                                                     |
 | `CRON_SECRET`                            | Random secret for the daily `/api/cron/cleanup` (expires messages after 30 days, drafts after 7).                                                                                                                                                                                                 |
+| `MUSE_API_KEY`                           | Optional. Meta Model API key; turns on one-click Agents. The key's owner pays, and chat content goes to Meta's API. The API is in preview for US developers.                                                                                                                                      |
+| `MUSE_MODEL`, `MUSE_API_BASE`            | Optional. Default `muse-spark-1.1` and `https://api.meta.ai/v1`. Do not use a `-contributor` model: those train on prompts.                                                                                                                                                                       |
+| `RUNNER_DAILY_CAP`                       | Model calls per day across all Hub-run Agents (default 500), which bounds the bill while sign-up is open.                                                                                                                                                                                         |
 
 `APP_ENV` is forced to `production` whenever Vercel hosts the function.
 
@@ -68,4 +71,4 @@ The callback allowlist covers `chatgpt.com`, `muse.ai` subdomains, the exact obs
 
 ## Runtime notes
 
-`vercel.json` allows 30 seconds per request; `hub_inbox` long-polls at most 20 seconds. OAuth mutation requests run in one interactive write transaction. The pinned OAuth provider library and its Node network adapter must be reviewed together on upgrade.
+`vercel.json` allows 60 seconds per request, because Hub-run Agents keep working after the response through `waitUntil` for up to 45 seconds; `hub_inbox` and the chat watch long-poll at most 20 seconds. A run that gets cut off leaves its messages unhandled, and the next time an owner opens the chat it is picked up again. The server bundle replaces bare `fetch` with the OAuth metadata client, so any other outbound call must use `globalThis.fetch` or `webhookFetch`; `npm run test:http` checks this for the model client. OAuth mutation requests run in one interactive write transaction. The pinned OAuth provider library and its Node network adapter must be reviewed together on upgrade.
