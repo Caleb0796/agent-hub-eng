@@ -207,7 +207,13 @@ export async function handleMcp(
       if (error instanceof HubError)
         return result({ error: error.code, message: error.message }, true);
       if (error instanceof z.ZodError)
-        return result({ error: 'invalid_arguments', message: '参数不符合工具格式' }, true);
+        return result(
+          {
+            error: 'invalid_arguments',
+            message: "The arguments do not match the tool's input schema.",
+          },
+          true,
+        );
       throw error;
     }
   };
@@ -281,7 +287,10 @@ const invalid = (code: number, message: string): Response =>
 function revoked(auth: OAuthResourceContext<AgentTokenProps>['auth']): Response {
   const resource = new URL(auth.audience);
   return Response.json(
-    { error: 'invalid_token', error_description: '连接已重置或撤销，请重新连接' },
+    {
+      error: 'invalid_token',
+      error_description: 'The connection was reset or revoked. Please reconnect.',
+    },
     {
       status: 401,
       headers: {

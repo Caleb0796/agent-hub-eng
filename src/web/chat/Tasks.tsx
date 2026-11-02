@@ -6,11 +6,14 @@ import { CopyButton, platformName } from '../ui';
 
 const templates = (friend: string) => [
   {
-    label: '约饭',
-    text: `帮我和 ${friend} 约一顿饭。我周五、周六晚上有空，人均 200 以内。定下来后告诉我。`,
+    label: 'Plan a meal',
+    text: `Help me plan a meal with ${friend}. I'm free Friday and Saturday evenings, under $30 per person. Tell me once it's settled.`,
   },
-  { label: '约时间', text: `帮我和 ${friend} 约个时间聊聊，下周工作日晚上都行。` },
-  { label: '问点事', text: `帮我问问 ${friend}：` },
+  {
+    label: 'Find a time',
+    text: `Help me find a time to talk with ${friend}. Any weekday evening next week works.`,
+  },
+  { label: 'Ask something', text: `Help me ask ${friend}: ` },
 ];
 
 /** A platform Agent can be asked right where its owner already talks to it. */
@@ -21,15 +24,20 @@ function AskFromPlatform({
   platform: string;
   peer: ChatView['sides'][number];
 }) {
-  const prompt = `在 Agent Hub 上问问 ${peer.agent_label}：周五晚上有空吗？等它回复了告诉我。`;
+  const prompt = `On Agent Hub, ask ${peer.agent_label}: are you free Friday evening? Tell me when it replies.`;
   return (
     <details className="agent-listen">
-      <summary>也可以回到 {platformName(platform)}，直接让它去问</summary>
-      <p className="muted">把这句话发给它，问题换成你想问的。对话也会出现在这里。</p>
+      <summary>Or go back to {platformName(platform)} and have it ask directly</summary>
+      <p className="muted">
+        Send it this message, changing the question to what you want to ask. The conversation will
+        show up here too.
+      </p>
       <div className="prompt-box">{prompt}</div>
-      <CopyButton value={prompt} label="复制这句话" />
+      <CopyButton value={prompt} label="Copy this message" />
       {peer.runner !== 'hub' && (
-        <p className="fine-print">{peer.agent_label} 要在它的平台运行时才会回复。</p>
+        <p className="fine-print">
+          {peer.agent_label} only replies while it&apos;s running on its platform.
+        </p>
       )}
     </details>
   );
@@ -67,7 +75,7 @@ export function ChatTasks({
       await onChanged();
     });
   return (
-    <section className="tasks" aria-label={`交给 ${agentName} 的事`}>
+    <section className="tasks" aria-label={`Tasks for ${agentName}`}>
       {chat.grants.map((g) => (
         <div className="task" key={g.id}>
           <ListTodo size={15} />
@@ -82,7 +90,7 @@ export function ChatTasks({
               })
             }
           >
-            移除
+            Remove
           </button>
         </div>
       ))}
@@ -106,30 +114,30 @@ export function ChatTasks({
             rows={2}
             maxLength={1000}
             value={text}
-            aria-label={`交给 ${agentName} 的事`}
-            placeholder={`想让 ${agentName} 替你办什么？`}
+            aria-label={`Task for ${agentName}`}
+            placeholder={`What should ${agentName} do for you?`}
             onChange={(e) => setText(e.target.value)}
           />
           <div className="task-form-foot">
-            <small>只有你和你的 Agent 能看到，对方看不到。</small>
+            <small>Only you and your Agent can see this. The other side can&apos;t.</small>
             <span className="button-row">
               <button
                 type="button"
                 className="icon-button"
-                aria-label="取消"
+                aria-label="Cancel"
                 onClick={() => setAdding(false)}
               >
                 <X size={16} />
               </button>
               <button className="button primary compact" disabled={busy || !text.trim()}>
-                交给它
+                Give task
               </button>
             </span>
           </div>
         </form>
       ) : (
         <button className="task-add" onClick={() => setAdding(true)}>
-          <Plus size={15} /> 交给 {agentName} 一件事
+          <Plus size={15} /> Give {agentName} a task
         </button>
       )}
       {platform && <AskFromPlatform platform={platform} peer={peer} />}

@@ -191,7 +191,10 @@ describe('reports and instructions', () => {
   });
   it('lets only an owner hand things to their own Agent', () => {
     expect(canOwnerAct(chat(), 'alice', 'set_grant', 'A')).toEqual({ kind: 'allow' });
-    expect(canOwnerAct(chat(), 'bob', 'set_grant', 'A')).toEqual({ kind: 'deny', code: 'not_found' });
+    expect(canOwnerAct(chat(), 'bob', 'set_grant', 'A')).toEqual({
+      kind: 'deny',
+      code: 'not_found',
+    });
     expect(canOwnerAct(chat({ status: 'closed' }), 'alice', 'set_grant', 'A')).toEqual({
       kind: 'deny',
       code: 'chat_not_open',
@@ -202,6 +205,7 @@ describe('reports and instructions', () => {
 describe('vault and DLP', () => {
   const vault = new Vault({ 1: TEST_MESSAGE_KEY });
   it('round-trips and binds ciphertext to its chat and message', () => {
+    // Non-ASCII plaintext on purpose: multi-byte UTF-8 must round-trip through the vault.
     const sealed = vault.seal('秘密内容', messageAad('chat', 'm1'));
     expect(sealed.ciphertext).not.toContain('秘密');
     expect(vault.open(sealed.ciphertext, messageAad('chat', 'm1'), 1)).toBe('秘密内容');
@@ -219,7 +223,11 @@ describe('vault and DLP', () => {
   it('flags fixed-format secrets but not ordinary text', () => {
     expect(scan('ghp_' + 'a'.repeat(30))).toEqual(['GitHub token']);
     expect(scan('-----BEGIN ' + 'PRIVATE KEY-----')).toEqual(['private key']);
-    expect(scan('password: hunter2hunter2')).toEqual(['password assignment']);
+    expect(scan('password: hunter2hunter2')).toEqual([
+      'password assignment',
+      'password or verification code',
+    ]);
+    // Non-English ordinary text on purpose: DLP must not flag it.
     expect(scan('明天下午三点一起吃饭')).toEqual([]);
   });
   // Long values are built at runtime so scripts/check-secrets.mjs does not flag this file.
@@ -239,6 +247,8 @@ describe('vault and DLP', () => {
 });
 
 describe('mentions', () => {
+  // Chinese on purpose: production names look like 'caleb的 Duet', and CJK text next to a name
+  // must not break matching.
   const names = ['caleb', 'caleb的 Duet', 'Bob', '小明'];
   const found = (text: string) => findMentions(text, names).map((m) => m.name);
 

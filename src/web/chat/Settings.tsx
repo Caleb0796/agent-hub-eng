@@ -17,22 +17,22 @@ export function ChatSettings({
 }) {
   const owners = [...new Map(chat.sides.map((s) => [s.owner_id, s])).values()];
   return (
-    <aside className="chat-drawer" aria-label="聊天设置">
+    <aside className="chat-drawer" aria-label="Chat settings">
       <div className="drawer-head">
-        <strong>聊天设置</strong>
-        <button className="icon-button" aria-label="关闭设置" onClick={onClose}>
+        <strong>Chat settings</strong>
+        <button className="icon-button" aria-label="Close settings" onClick={onClose}>
           <X size={18} />
         </button>
       </div>
       <section>
-        <h3>谁在这里</h3>
+        <h3>Who&apos;s here</h3>
         <ul className="people">
           {owners.map((s) => (
             <li key={s.owner_id}>
               <Avatar kind="owner" name={s.owner_name} />
               <span>
                 <strong>{s.owner_name}</strong>
-                <small>{s.mine ? '你' : '对方主人（名字由本人填写）'}</small>
+                <small>{s.mine ? 'You' : 'Other owner (they chose this name)'}</small>
               </span>
             </li>
           ))}
@@ -41,7 +41,7 @@ export function ChatSettings({
               <Avatar kind="agent" name={s.agent_label} platform={s.platform} />
               <span>
                 <strong>{s.agent_label}</strong>
-                <small>{s.mine ? '你的 Agent' : `${s.owner_name} 的 Agent`}</small>
+                <small>{s.mine ? 'Your Agent' : `${s.owner_name}'s Agent`}</small>
               </span>
             </li>
           ))}
@@ -49,9 +49,10 @@ export function ChatSettings({
       </section>
       {chat.status === 'open' && (
         <section>
-          <h3>我的 Agent</h3>
+          <h3>My side</h3>
           <p className="drawer-note">
-            Agent 会直接替你发消息。在这里发的消息，你的 Agent 会当作你的指令；对方说的话只作参考。
+            Your Agent sends messages for you directly. It treats what you send here as your
+            instructions; what the other side says is only for reference.
           </p>
           {chat.sides
             .filter((s) => s.mine)
@@ -69,7 +70,7 @@ export function ChatSettings({
                       })
                     }
                   />
-                  <span>{s.agent_label} 发出前先给我看</span>
+                  <span>Review {s.agent_label}&apos;s messages first</span>
                 </label>
                 <button
                   className="button secondary compact"
@@ -81,30 +82,34 @@ export function ChatSettings({
                   }
                 >
                   {s.paused ? <Play size={14} /> : <Pause size={14} />}
-                  {s.paused ? '解除暂停' : '暂停这个聊天'}
+                  {s.paused ? 'Resume' : 'Pause this chat'}
                 </button>
               </div>
             ))}
         </section>
       )}
       <section>
-        <h3>消息</h3>
+        <h3>Messages</h3>
         <p className="drawer-note">
-          消息加密存储，保留 {chat.retention_days} 天，但不是端到端加密，Hub
-          技术上能解密。不要发密码、证件等敏感资料。
+          Messages are encrypted at rest and kept for {chat.retention_days} days, but this is not
+          end-to-end encryption: the Hub can technically decrypt them. Don&apos;t send passwords, ID
+          documents or other sensitive details.
         </p>
         {chat.sides.some((s) => s.runner === 'hub') && (
           <p className="drawer-note">
+            The Hub runs{' '}
             {chat.sides
               .filter((s) => s.runner === 'hub')
               .map((s) => s.agent_label)
-              .join('、')}{' '}
-            由 Hub 调用 Meta 的 Muse Spark 运行，这个聊天的消息会发给这个模型来生成回复。
+              .join(', ')}{' '}
+            on Meta&apos;s Muse Spark, and messages in this chat are sent to that model to generate
+            replies.
           </p>
         )}
         {chat.sides.some((s) => s.runner === 'platform') && (
           <p className="drawer-note">
-            连接进来的 Agent 只有在它的平台运行时才会收到消息，所以回复不一定是即时的。
+            A connected Agent only gets messages while it&apos;s running on its platform, so replies
+            may not be immediate.
           </p>
         )}
         <button
@@ -112,11 +117,11 @@ export function ChatSettings({
           disabled={busy}
           onClick={() => act(`/api/chats/${chat.id}/clear`)}
         >
-          清空我这边的记录
+          Clear my view
         </button>
         {chat.status === 'open' && (
           <button className="text-button danger" disabled={busy} onClick={onCloseChat}>
-            关闭聊天
+            Close chat
           </button>
         )}
       </section>

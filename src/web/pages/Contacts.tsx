@@ -51,8 +51,11 @@ export function ContactsPage({
     <>
       <div className="page-heading">
         <div>
-          <h1>好友</h1>
-          <p>通过一次性链接加好友。名字由对方自己填写，真正的依据是你把链接发给了谁。</p>
+          <h1>Friends</h1>
+          <p>
+            Add friends with a one-time link. Each person chooses their own name, so what counts is
+            who you sent the link to.
+          </p>
         </div>
         <button
           className="button primary"
@@ -63,29 +66,29 @@ export function ContactsPage({
             setInviteAgent(mine[0]?.id ?? '');
           }}
         >
-          <Plus size={16} /> 邀请朋友
+          <Plus size={16} /> Invite a friend
         </button>
       </div>
       {inviting && (
-        <Modal title="邀请朋友" onClose={() => setInviting(false)}>
+        <Modal title="Invite a friend" onClose={() => setInviting(false)}>
           {link ? (
             <>
               <p className="muted">
-                把这个链接私下发给对方，7 天内有效，只能用一次。对方点开后，双方的 Agent
-                就能直接聊天。
+                Send this link to your friend privately. It is valid for 7 days and works only once.
+                When they open it, your Agents can chat directly.
               </p>
               <div className="prompt-box mono">{link}</div>
               <div className="button-row">
                 {/* The token travels in this URL to WhatsApp, which is where it is going anyway. */}
                 <a
                   className="button primary compact"
-                  href={`https://wa.me/?text=${encodeURIComponent(`让我们的 Agent 帮忙把事情安排了吧。点这里加入：${link}`)}`}
+                  href={`https://wa.me/?text=${encodeURIComponent(`Let's have our Agents sort this out for us. Tap here to join: ${link}`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <MessageCircle size={15} /> 用 WhatsApp 发送
+                  <MessageCircle size={15} /> Send with WhatsApp
                 </a>
-                <CopyButton value={link} label="复制链接" />
+                <CopyButton value={link} label="Copy link" />
               </div>
             </>
           ) : (
@@ -103,28 +106,30 @@ export function ContactsPage({
                     await load();
                   } catch (e) {
                     if (e instanceof ApiError && e.code === 'reauthentication_required') throw e;
-                    setInviteError(e instanceof Error ? e.message : '操作未完成');
+                    setInviteError(
+                      e instanceof Error ? e.message : 'The action was not completed.',
+                    );
                   }
                 });
               }}
             >
               {mine.length > 1 ? (
                 <label>
-                  让对方和哪个 Agent 聊
+                  Agent your friend can chat with
                   <select value={inviteAgent} onChange={(e) => setInviteAgent(e.target.value)}>
                     {mine.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.label} · {platformName(a.platform)}
                       </option>
                     ))}
-                    <option value="">只加好友，先不开放 Agent</option>
+                    <option value="">Friend only, no Agent shared yet</option>
                   </select>
                 </label>
               ) : (
                 <p className="muted">
                   {mine.length
-                    ? `对方接受后，${mine[0].label} 就能和对方的 Agent 聊起来。`
-                    : '对方接受后你们就是好友了。你还没有 Agent，之后可以再加。'}
+                    ? `Once they accept, ${mine[0].label} can start chatting with their Agent.`
+                    : 'Once they accept, you will be friends. You do not have an Agent yet, but you can add one later.'}
                 </p>
               )}
               {inviteError && (
@@ -133,7 +138,7 @@ export function ContactsPage({
                 </div>
               )}
               <button className="button primary full" disabled={busy}>
-                <Link2 size={16} /> 生成邀请链接
+                <Link2 size={16} /> Create invite link
               </button>
             </form>
           )}
@@ -141,27 +146,27 @@ export function ContactsPage({
       )}
       {active.length > 0 && (
         <section className="section">
-          <h2>还没被用掉的邀请</h2>
+          <h2>Unused invites</h2>
           {active.map((i) => (
             <div className="row" key={i.id}>
               <div className="row-main">
-                <strong>{i.agent_label ?? '只加好友'}</strong>
-                <small>{when(i.expires_at)} 过期</small>
+                <strong>{i.agent_label ?? 'Friend only'}</strong>
+                <small>Expires {when(i.expires_at)}</small>
               </div>
               <button
                 className="text-button"
                 disabled={busy}
                 onClick={() => act('DELETE', `/api/invites/${i.id}`)}
               >
-                撤回
+                Revoke
               </button>
             </div>
           ))}
         </section>
       )}
       {!friends.length ? (
-        <Empty icon={<Users size={22} />} title="还没有好友">
-          点“邀请朋友”生成一个链接。
+        <Empty icon={<Users size={22} />} title="No friends yet">
+          Click &quot;Invite a friend&quot; to create a link.
         </Empty>
       ) : (
         friends.map((c) => (
@@ -171,9 +176,9 @@ export function ContactsPage({
               <div className="row-main">
                 <strong>{c.peer.name}</strong>
                 {c.blocked_by_peer ? (
-                  <small>对方已拉黑，暂时无法聊天</small>
+                  <small>This friend has blocked you, so you cannot chat for now.</small>
                 ) : (
-                  !c.peer.deleted && <small>名字由本人填写</small>
+                  !c.peer.deleted && <small>They chose this name themselves</small>
                 )}
               </div>
               <div className="row-actions">
@@ -183,29 +188,37 @@ export function ContactsPage({
                     disabled={busy}
                     onClick={() => act('POST', `/api/contacts/${c.id}/unblock`)}
                   >
-                    解除拉黑
+                    Unblock
                   </button>
                 ) : (
                   <button
                     className="text-button danger"
                     disabled={busy}
                     onClick={() => {
-                      if (confirm('拉黑会关闭你们之间的全部聊天，未投递的消息会被扣下。要拉黑吗？'))
+                      if (
+                        confirm(
+                          'Blocking closes every chat between you, and undelivered messages are held back. Block this friend?',
+                        )
+                      )
                         act('POST', `/api/contacts/${c.id}/block`);
                     }}
                   >
-                    拉黑
+                    Block
                   </button>
                 )}
                 <button
                   className="text-button danger"
                   disabled={busy}
                   onClick={() => {
-                    if (confirm('删除好友会关闭全部聊天，之后需要新的邀请才能再加。要删除吗？'))
+                    if (
+                      confirm(
+                        'Removing this friend closes every chat with them. To add them again you need a new invite. Remove this friend?',
+                      )
+                    )
                       act('DELETE', `/api/contacts/${c.id}`);
                   }}
                 >
-                  删除好友
+                  Remove friend
                 </button>
               </div>
             </div>
@@ -223,16 +236,16 @@ export function ContactsPage({
                         disabled={busy || c.blocked_by_me || c.blocked_by_peer}
                         onClick={() => startChat(mine[0].id, a.id)}
                       >
-                        聊天
+                        Chat
                       </button>
                     ) : (
                       <select
-                        aria-label={`用我的哪个 Agent 和 ${a.label} 聊`}
+                        aria-label={`Which of my Agents should chat with ${a.label}`}
                         disabled={busy || c.blocked_by_me || c.blocked_by_peer || !mine.length}
                         defaultValue=""
                         onChange={(e) => e.target.value && startChat(e.target.value, a.id)}
                       >
-                        <option value="">用我的 Agent 聊…</option>
+                        <option value="">Start a chat with my Agent…</option>
                         {mine.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.label}
@@ -243,8 +256,12 @@ export function ContactsPage({
                   </div>
                 </div>
               ))}
-              {!c.peer_agents.length && <p className="friend-label">对方还没有开放 Agent 给你。</p>}
-              <p className="friend-label">对方可以和这些 Agent 聊（取消勾选会关闭对应聊天）</p>
+              {!c.peer_agents.length && (
+                <p className="friend-label">They have not shared an Agent with you yet.</p>
+              )}
+              <p className="friend-label">
+                Agents they can chat with (unchecking one closes its chats)
+              </p>
               <div className="controls">
                 {mine.map((m) => (
                   <label className="check-label" key={m.id}>
@@ -272,14 +289,17 @@ export function ContactsPage({
           <Avatar kind="owner" name={c.peer.name} />
           <div className="row-main">
             <strong>{c.peer.name}</strong>
-            <small>已删除，你还拉黑着对方。解除后才能通过新邀请重新加好友。</small>
+            <small>
+              You removed this friend but still have them blocked. Unblock them first; then you can
+              add them again with a new invite.
+            </small>
           </div>
           <button
             className="text-button"
             disabled={busy}
             onClick={() => act('POST', `/api/contacts/${c.id}/unblock`)}
           >
-            解除拉黑
+            Unblock
           </button>
         </div>
       ))}

@@ -26,7 +26,7 @@ export const INVITE_TTL = 7 * 86400;
 export const MAX_ACTIVE_INVITES = 5;
 export const REQUEST_COOLDOWN = 86400;
 const MAX_AGENTS = 8;
-const DELETED_OWNER = '已注销用户';
+const DELETED_OWNER = 'Deleted user';
 const MAX_GRANTS = 20;
 const RUN_CONTEXT_MESSAGES = 40;
 const RUN_CONTEXT_CHARS = 12_000;
@@ -152,20 +152,23 @@ const rosterName = (roster: RosterEntry[], kind: RosterEntry['kind'], id: string
   roster.find((r) => r.kind === kind && r.id === id)?.name ?? '';
 
 const denyMessages: Record<DenyCode, [HttpStatus, string]> = {
-  not_found: [404, '不存在或无权访问'],
-  chat_not_open: [409, '聊天未开启或已关闭'],
-  chat_paused: [409, '聊天已暂停'],
-  blocked: [403, '对方或你已拉黑，无法进行'],
-  peer_retired: [409, '对方的 Agent 已退役'],
-  agent_retired: [403, '这个 Agent 已退役'],
-  review_queue_full: [429, '待审核消息已满 20 条，请等主人处理后再发'],
+  not_found: [404, 'Not found, or you do not have access.'],
+  chat_not_open: [409, 'The chat is not open or has been closed.'],
+  chat_paused: [409, 'The chat is paused.'],
+  blocked: [403, 'One owner has blocked the other, so this cannot proceed.'],
+  peer_retired: [409, 'The other Agent has been retired.'],
+  agent_retired: [403, 'This Agent has been retired.'],
+  review_queue_full: [
+    429,
+    'There are already 20 messages awaiting review. Wait for your owner to handle them before sending more.',
+  ],
   agent_run_limit: [
     429,
-    `两边的 Agent 已连续发了 ${AGENT_RUN_LIMIT} 条，等任一主人发言或 1 小时后才能继续`,
+    `The two Agents have sent ${AGENT_RUN_LIMIT} messages in a row. They can continue once either owner speaks or after an hour.`,
   ],
-  not_receiver: [403, '只有接收方可以处理这个请求'],
-  not_paused_by_you: [409, '只能解除自己设置的暂停'],
-  already_closed: [409, '聊天已经关闭'],
+  not_receiver: [403, 'Only the receiving side can handle this request.'],
+  not_paused_by_you: [409, 'You can only resume a pause you set yourself.'],
+  already_closed: [409, 'The chat is already closed.'],
 };
 function denied(code: DenyCode): HubError {
   const [status, message] = denyMessages[code];
@@ -174,7 +177,7 @@ function denied(code: DenyCode): HubError {
 function enforce(decision: Decision): void {
   if (decision.kind === 'deny') throw denied(decision.code);
 }
-const notFound = () => new HubError('not_found', 404, '不存在或无权访问');
+const notFound = () => new HubError('not_found', 404, 'Not found, or you do not have access.');
 const sorted = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // The token's connection is still the Agent's current one (binds agent id, auth_version).
@@ -263,7 +266,7 @@ export class ChatService {
       ownerId,
     ).first<AgentRow>();
     if (!a) throw notFound();
-    ensure(!active || a.status === 'active', 'agent_retired', 403, '这个 Agent 已退役');
+    ensure(!active || a.status === 'active', 'agent_retired', 403, 'This Agent has been retired.');
     return a;
   }
   async agentsOf(ownerId: string): Promise<AgentRow[]> {
@@ -284,12 +287,12 @@ export class ChatService {
       (count?.n ?? 0) < MAX_AGENTS,
       'agent_limit',
       409,
-      `每位主人最多连接 ${MAX_AGENTS} 个 Agent`,
+      `Each owner can connect at most ${MAX_AGENTS} Agents.`,
     );
     const owner = await this.user(ownerId),
       id = crypto.randomUUID(),
       at = this.now();
-    const name = (label ?? `${owner.display_name}的 ${platformNames[platform]}`).slice(0, 60);
+    const name = (label ?? `${owner.display_name}'s ${platformNames[platform]}`).slice(0, 60);
     await this.connection.batch([
       this.sql(
         "INSERT INTO agents(id,owner_id,platform,label,status,created_at) VALUES(?,?,?,?,'active',?)",
@@ -330,7 +333,7 @@ export class ChatService {
       before.runner === 'platform',
       'hub_run_agent',
       409,
-      '这个 Agent 由 Hub 运行，不需要连接',
+      'The Hub runs this Agent, so it needs no connection.',
     );
     const changed =
       before.reset_pending === 1 ||
@@ -373,7 +376,7 @@ export class ChatService {
 
   async resetConnection(ownerId: string, agentId: string) {
     const agent = await this.ownAgent(ownerId, agentId);
-    ensure(agent.runner === 'platform', 'hub_run_agent', 409, '这个 Agent 由 Hub 运行，不需要连接');
+    ensure(agent.runner === 'platform', 'hub_run_agent', 409, 'The Hub runs this Agent, so it needs no connection.');
     await this.connection.batch([
       this.sql(
         'UPDATE agents SET auth_version=auth_version+1,reset_pending=1 WHERE id=? AND owner_id=?',
@@ -440,7 +443,7 @@ export class ChatService {
       (active?.n ?? 0) < MAX_ACTIVE_INVITES,
       'invite_limit',
       409,
-      `最多同时保留 ${MAX_ACTIVE_INVITES} 个有效邀请，请先撤回旧的`,
+      `You can have at most ${MAX_ACTIVE_INVITES} active invites at a time. Revoke an old one first.`,
     );
     const token = randomToken(),
       id = crypto.randomUUID();
@@ -501,13 +504,18 @@ export class ChatService {
       inviter_agent_id: string | null;
       expires_at: number;
     }>();
-    ensure(invite, 'invite_unavailable', 410, '邀请链接无效、已过期或已被使用');
+    ensure(
+      invite,
+      'invite_unavailable',
+      410,
+      'The invite link is invalid, has expired or was already used.',
+    );
     const inviter = await this.user(invite.inviter_id);
     ensure(
       !inviter.deleted_at && !inviter.disabled_at,
       'invite_unavailable',
       410,
-      '邀请链接已失效',
+      'The invite link is no longer valid.',
     );
     const agent = invite.inviter_agent_id ? await this.agent(invite.inviter_agent_id) : null;
     return { invite, inviter, agent: agent?.status === 'active' ? agent : null };
@@ -530,12 +538,17 @@ export class ChatService {
    */
   async acceptInvite(ownerId: string, token: string, agentId: string | null) {
     const { invite, agent: inviterAgent } = await this.usableInvite(token);
-    ensure(invite.inviter_id !== ownerId, 'own_invite', 409, '不能接受自己发出的邀请');
+    ensure(invite.inviter_id !== ownerId, 'own_invite', 409, 'You cannot accept your own invite.');
     const mine = agentId ? await this.ownAgent(ownerId, agentId) : null;
     const at = this.now(),
       [low, high] = sorted(ownerId, invite.inviter_id);
     let contact = await this.contactBetween(ownerId, invite.inviter_id);
-    ensure(!this.blockedRow(contact), 'blocked', 403, '你们之间存在拉黑，无法添加');
+    ensure(
+      !this.blockedRow(contact),
+      'blocked',
+      403,
+      'One of you has blocked the other, so you cannot become friends.',
+    );
     const statements: Statement[] = [];
     const contactId = contact?.id ?? crypto.randomUUID();
     if (!contact) {
@@ -616,12 +629,22 @@ export class ChatService {
         !String(error).includes('invite_spent'),
         'invite_unavailable',
         410,
-        '邀请链接已被使用',
+        'The invite link has already been used.',
       );
       await this.usableInvite(token);
       const now = await this.contactBetween(ownerId, invite.inviter_id);
-      ensure(!this.blockedRow(now), 'blocked', 403, '你们之间存在拉黑，无法添加');
-      ensure(!live || !now?.removed_at, 'contact_changed', 409, '好友关系刚刚发生变化，请重试');
+      ensure(
+        !this.blockedRow(now),
+        'blocked',
+        403,
+        'One of you has blocked the other, so you cannot become friends.',
+      );
+      ensure(
+        !live || !now?.removed_at,
+        'contact_changed',
+        409,
+        'The friendship just changed. Please try again.',
+      );
       throw error;
     });
     contact = await this.contactBetween(ownerId, invite.inviter_id);
@@ -930,10 +953,10 @@ export class ChatService {
   async requestChat(ownerId: string, myAgentId: string, peerAgentId: string) {
     const mine = await this.ownAgent(ownerId, myAgentId),
       peer = await this.agent(peerAgentId);
-    ensure(mine.id !== peer.id, 'invalid_request', 400, '不能和自己聊天');
+    ensure(mine.id !== peer.id, 'invalid_request', 400, 'An Agent cannot chat with itself.');
     const at = this.now();
     if (peer.owner_id === ownerId) {
-      ensure(peer.status === 'active', 'peer_retired', 409, '这个 Agent 已退役');
+      ensure(peer.status === 'active', 'peer_retired', 409, 'This Agent has been retired.');
       const opened = await this.openChatStatements(mine, peer, ownerId, at);
       if (opened.statements.length) await this.connection.batch(opened.statements);
       return this.ownerChat(ownerId, opened.id);
@@ -947,7 +970,12 @@ export class ChatService {
     ).first();
     // Unexposed or retired Agents look exactly like missing ones.
     if (!exposedToMe || peer.status !== 'active') throw notFound();
-    ensure(!this.blockedRow(contact), 'blocked', 403, '对方或你已拉黑，无法发起');
+    ensure(
+      !this.blockedRow(contact),
+      'blocked',
+      403,
+      'One of you has blocked the other, so the chat cannot be requested.',
+    );
     const [low, high] = sorted(mine.id, peer.id);
     const existing = await this.sql(
       'SELECT * FROM chats WHERE agent_low=? AND agent_high=?',
@@ -965,7 +993,7 @@ export class ChatService {
         !side?.last_request_at || at - side.last_request_at >= REQUEST_COOLDOWN,
         'request_cooldown',
         429,
-        '同一聊天 24 小时内只能请求一次',
+        'You can request the same chat only once every 24 hours.',
       );
     }
     const id = existing?.id ?? crypto.randomUUID();
@@ -1034,7 +1062,7 @@ export class ChatService {
       contact && !this.blockedRow(contact) && !contact.removed_at,
       'blocked',
       403,
-      '对方或你已拉黑，无法批准',
+      'One of you has blocked the other, so the chat cannot be approved.',
     );
     await this.connection.batch([
       this.sql("UPDATE chats SET status='open' WHERE id=? AND status='pending'", chatId),
@@ -1159,7 +1187,7 @@ export class ChatService {
       input.text.length <= MAX_GRANT_TEXT,
       'text_too_long',
       400,
-      `不超过 ${MAX_GRANT_TEXT} 字符`,
+      `At most ${MAX_GRANT_TEXT} characters.`,
     );
     let agentId = input.agentId;
     if (input.chatId) {
@@ -1172,7 +1200,7 @@ export class ChatService {
       agentId,
       this.now(),
     ).first<{ n: number }>();
-    ensure((count?.n ?? 0) < MAX_GRANTS, 'grant_limit', 409, '交代的事太多了，先去掉一些');
+    ensure((count?.n ?? 0) < MAX_GRANTS, 'grant_limit', 409, 'That is too many tasks. Remove some first.');
     const id = crypto.randomUUID(),
       at = this.now(),
       sealed = this.vault.seal(input.text, grantAad(agentId, id));
@@ -1229,7 +1257,7 @@ export class ChatService {
     agentId: string,
     input: { chat_id: string; text: string; needs_owner?: boolean; idempotency_key: string },
   ) {
-    ensure(input.text.length <= MAX_TEXT, 'text_too_long', 400, `单条不超过 ${MAX_TEXT} 字符`);
+    ensure(input.text.length <= MAX_TEXT, 'text_too_long', 400, `A message can be at most ${MAX_TEXT} characters.`);
     const loaded = await this.load(input.chat_id);
     enforce(canAgentReport(loaded.state, agentId));
     const id = crypto.randomUUID(),
@@ -1334,7 +1362,12 @@ export class ChatService {
     agentId: string,
     input: { chat_id: string; text: string; reply_to?: string; idempotency_key: string },
   ): Promise<SendResult> {
-    ensure(input.text.length <= MAX_TEXT, 'text_too_long', 400, `单条不超过 ${MAX_TEXT} 字符`);
+    ensure(
+      input.text.length <= MAX_TEXT,
+      'text_too_long',
+      400,
+      `A message can be at most ${MAX_TEXT} characters.`,
+    );
     const prior = await this.priorSend(agentId, input.idempotency_key);
     if (prior) return prior;
     const loaded = await this.load(input.chat_id);
@@ -1496,7 +1529,12 @@ export class ChatService {
   /** Owners speak as themselves. While paused it is stored and delivered later. */
   async ownerSend(ownerId: string, chatId: string, text: string, replyTo?: string) {
     await this.ownerLoad(ownerId, chatId, 'owner_send');
-    ensure(text.length <= MAX_TEXT, 'text_too_long', 400, `单条不超过 ${MAX_TEXT} 字符`);
+    ensure(
+      text.length <= MAX_TEXT,
+      'text_too_long',
+      400,
+      `A message can be at most ${MAX_TEXT} characters.`,
+    );
     const id = crypto.randomUUID();
     const inserted = await this.insertMessage({
       id,
@@ -1524,7 +1562,7 @@ export class ChatService {
       d.status === 'pending' && d.expires_at > this.now(),
       'draft_closed',
       409,
-      '这条草稿已处理或已过期',
+      'This draft was already handled or has expired.',
     );
     return d;
   }
@@ -1532,7 +1570,12 @@ export class ChatService {
   async approveDraft(ownerId: string, draftId: string) {
     const d = await this.ownDraft(ownerId, draftId);
     const loaded = await this.load(d.chat_id);
-    ensure(loaded.chat.status === 'open', 'chat_not_open', 409, '聊天未开启或已关闭');
+    ensure(
+      loaded.chat.status === 'open',
+      'chat_not_open',
+      409,
+      'The chat is not open or has been closed.',
+    );
     const id = crypto.randomUUID(),
       at = this.now(),
       sealed = this.vault.seal(this.decryptDraft(d), messageAad(d.chat_id, id));
@@ -1568,7 +1611,7 @@ export class ChatService {
         at,
       ),
     ]);
-    ensure(results[0].meta.changes === 1, 'draft_closed', 409, '这条草稿已处理');
+    ensure(results[0].meta.changes === 1, 'draft_closed', 409, 'This draft was already handled.');
     return { message_id: id };
   }
 
@@ -1632,7 +1675,12 @@ export class ChatService {
       messageId,
       ...recipients,
     ).run();
-    ensure(withheld.meta.changes === 1, 'already_taken', 409, '接收方 Agent 已取走，无法撤回');
+    ensure(
+      withheld.meta.changes === 1,
+      'already_taken',
+      409,
+      'The receiving Agent already fetched it, so it cannot be withdrawn.',
+    );
     await audit(this.connection, 'message_withdrawn', messageId, { owner: ownerId }).run();
     return { ok: true };
   }
@@ -1652,7 +1700,12 @@ export class ChatService {
           agentId,
           authVersion,
         ).first();
-        ensure(current, 'connection_revoked', 401, '连接已重置或撤销，请重新连接');
+        ensure(
+          current,
+          'connection_revoked',
+          401,
+          'The connection was reset or revoked. Please reconnect.',
+        );
       }
       const messages = await this.takeOnce(agentId, limit, authVersion);
       const results = await this.takeDraftResults(agentId, authVersion);
@@ -1984,8 +2037,8 @@ export class ChatService {
         m.sender_kind === 'agent'
           ? (loaded.agents[m.sender_agent_id!]?.label ?? 'Agent')
           : fromMyOwner
-            ? '你的主人'
-            : '对方主人',
+            ? 'your owner'
+            : 'the other owner',
       // Set from the owner's login session, so message text cannot fake it. Everyone else's
       // words are information for this Agent to weigh, not instructions.
       from_my_owner: fromMyOwner,
@@ -2195,8 +2248,8 @@ export class ChatService {
             m.sender_kind === 'agent'
               ? (loaded.agents[m.sender_agent_id!]?.label ?? 'Agent')
               : m.sender_owner_id === ownerId
-                ? '我'
-                : '对方主人',
+                ? 'You'
+                : 'Other owner',
           sender_name:
             m.sender_kind === 'agent'
               ? rosterName(roster, 'agent', m.sender_agent_id!)

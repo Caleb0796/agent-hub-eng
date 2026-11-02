@@ -20,9 +20,14 @@ const rules: Array<[string, RegExp]> = [
     'password assignment',
     /(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)["']?\s*[:=]\s*["']?[^\s"']{8,}/i,
   ],
+  // The value must hold a digit or symbol, so "the password is required" stays untouched.
+  [
+    'password or verification code',
+    /\b(?:password|passcode|passphrase|verification code|security code|one[- ]time (?:code|password)|otp)\b\s*(?:(?:is|was)\b)?\s*[:=]?\s*["']?(?=[^\s"']*[0-9!@#$%^&*_+=])[^\s"']{4,}/i,
+  ],
   // Needs a value after the word, so talking about passwords in Chinese stays untouched.
   [
-    '中文密码或验证码',
+    'Chinese password or verification code',
     /(?:密码|口令|密钥|验证码)\s*(?:是|为|:|：|=)?\s*[A-Za-z0-9!@#$%^&*_+=.-]{4,}/,
   ],
   [

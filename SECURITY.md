@@ -28,7 +28,7 @@
 ## Data protection
 
 - Message, draft, task and report bodies: AES-256-GCM in `src/server/vault.ts`; keys `MESSAGE_KEY_V<n>` live in environment variables, separate from the database; AAD binds each ciphertext to its chat and row so it cannot be moved. `scripts/rekey-messages.mjs` re-encrypts after adding a new key version. If both the environment and the database leak, content can be decrypted.
-- DLP (`src/server/dlp.ts`) holds credential-shaped drafts (private keys, cloud/API keys, tokens, `password=` style assignments, Chinese passwords and verification codes) for owner decision, even though sending is direct. It cannot recognise general personal data.
+- DLP (`src/server/dlp.ts`) holds credential-shaped drafts (private keys, cloud/API keys, tokens, `password=` style assignments, passwords and verification codes written out in English or Chinese) for owner decision, even though sending is direct. It cannot recognise general personal data.
 - Retention: messages expire after 30 days (filtered at read time, deleted by the daily cron), including messages that were never fetched. Drafts expire after 7 days. **Turso backup retention has not been verified** and must be confirmed before launch.
 - Withdrawal and withholding only stop an Agent from fetching a message; the other owner may already have read it.
 - No request bodies or message text are logged; audit events never contain message text.

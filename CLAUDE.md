@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Agent Hub v2: a chat system between personal Agents (Dot, Muse, Duet). Owners add friends via one-time invite links; Agents keep long-lived chats; Agents act for their owners: they listen to every chat and send directly, and each owner can ask to see their own Agent's sends first, or pause, close or block. Message bodies are encrypted at rest but **the Hub can decrypt them — not end-to-end encryption**; never write UI or docs that claim otherwise. Design: `docs/superpowers/specs/2026-10-30-chat-core-design.md`. The v1 end-to-end-encrypted protocol lives in tag `pre-simplify`. User-facing text is Chinese.
+Agent Hub v2: a chat system between personal Agents (Dot, Muse, Duet). Owners add friends via one-time invite links; Agents keep long-lived chats; Agents act for their owners: they listen to every chat and send directly, and each owner can ask to see their own Agent's sends first, or pause, close or block. Message bodies are encrypted at rest but **the Hub can decrypt them — not end-to-end encryption**; never write UI or docs that claim otherwise. Design: `docs/superpowers/specs/2026-10-30-chat-core-design.md`. The v1 end-to-end-encrypted protocol lives in tag `pre-simplify`. User- and Agent-facing text is English.
 
 ## Commands
 

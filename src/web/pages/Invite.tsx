@@ -20,10 +20,13 @@ function PreviewCard({ preview }: { preview: Preview }) {
       <div>
         <strong>
           {preview.agent
-            ? `${preview.inviter_name} 想让你们的 Agent 聊起来`
-            : `${preview.inviter_name} 想加你为好友`}
+            ? `${preview.inviter_name} wants your Agents to chat`
+            : `${preview.inviter_name} wants to add you as a friend`}
         </strong>
-        <p>名字是对方自己填的，确认是认识的人再继续。链接 {when(preview.expires_at)} 前有效。</p>
+        <p>
+          They chose this name themselves, so make sure you know this person before you continue.
+          The link is valid until {when(preview.expires_at)}.
+        </p>
       </div>
     </div>
   );
@@ -74,7 +77,7 @@ export function InvitePage({
       navigate(accepted.chat_id ? `/chats/${accepted.chat_id}` : '/contacts');
     } catch (e) {
       if (e instanceof ApiError && e.code === 'reauthentication_required') throw e;
-      setAcceptError(e instanceof Error ? e.message : '操作未完成');
+      setAcceptError(e instanceof Error ? e.message : 'The action was not completed.');
     }
   };
   if (!owner) return <Auth onLogin={onLogin} intro={<PreviewCard preview={preview} />} />;
@@ -85,17 +88,28 @@ export function InvitePage({
         !mine.length &&
         (data?.hub_runner ? (
           <section className="panel">
-            <p className="muted">你还没有 Agent。创建一个，它就能马上和对方聊起来。</p>
+            <p className="muted">
+              You do not have an Agent yet. Create one and it can start chatting with them right
+              away.
+            </p>
             {acceptError && (
               <div className="error" role="alert">
                 {acceptError}
               </div>
             )}
-            <CreateAgent run={run} busy={busy} onCreated={accept} label="创建 Agent 并开始聊天" />
+            <CreateAgent
+              run={run}
+              busy={busy}
+              onCreated={accept}
+              label="Create Agent and start chat"
+            />
           </section>
         ) : (
           <>
-            <p className="muted">先连接一个你的 Agent。连接完成后这里会自动更新，链接不会失效。</p>
+            <p className="muted">
+              Connect one of your Agents first. This page updates automatically once it is
+              connected, and the link stays valid.
+            </p>
             <ConnectGuide />
           </>
         ))}
@@ -103,9 +117,9 @@ export function InvitePage({
         <section className="panel">
           {needsAgent && (
             <label>
-              用我的哪个 Agent 和对方聊
+              Your Agent for this chat
               <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-                <option value="">请选择</option>
+                <option value="">Choose an Agent</option>
                 {mine.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label} · {platformName(a.platform)}
@@ -115,8 +129,9 @@ export function InvitePage({
             </label>
           )}
           <p className="fine-print">
-            开始后，你的 Agent
-            会替你直接回复。你可以让它发出前先给你看，也可以随时暂停、关闭或拉黑。
+            Once started, your Agent replies for you directly. You can turn on &quot;review
+            first&quot; to see its messages before they go out, and you can pause, close or block at
+            any time.
           </p>
           {/* This page has no app shell, so App's error box is never visible here. */}
           {acceptError && (
@@ -129,7 +144,7 @@ export function InvitePage({
             disabled={busy || (needsAgent && !agentId)}
             onClick={() => void run(() => accept(agentId))}
           >
-            {needsAgent ? '开始聊天' : '加为好友'}
+            {needsAgent ? 'Start chat' : 'Add as friend'}
           </button>
         </section>
       )}

@@ -30,14 +30,18 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
   try {
     value = await response.json();
   } catch {
-    throw new ApiError('invalid_response', response.status, '服务暂时无法返回结果，请稍后重试');
+    throw new ApiError(
+      'invalid_response',
+      response.status,
+      'The service could not return a result. Try again later.',
+    );
   }
   if (!response.ok) {
     const error = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
     throw new ApiError(
       typeof error.error === 'string' ? error.error : 'request_failed',
       response.status,
-      typeof error.message === 'string' ? error.message : '操作没有完成',
+      typeof error.message === 'string' ? error.message : 'The action was not completed.',
     );
   }
   return value as T;

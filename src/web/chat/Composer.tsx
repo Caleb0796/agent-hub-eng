@@ -117,7 +117,7 @@ export const Composer = forwardRef<
       }}
     >
       {matches.length > 0 && (
-        <ul className="mention-menu" role="listbox" aria-label="选择要提及的人">
+        <ul className="mention-menu" role="listbox" aria-label="Choose who to mention">
           {matches.map((p, i) => (
             <li
               key={`${p.kind}:${p.name}`}
@@ -141,7 +141,7 @@ export const Composer = forwardRef<
         rows={1}
         value={text}
         maxLength={MAX_TEXT}
-        aria-label="消息"
+        aria-label="Message"
         placeholder={placeholder}
         onChange={(e) => {
           setText(e.target.value);
@@ -152,7 +152,7 @@ export const Composer = forwardRef<
         onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
         onKeyDown={onKeyDown}
       />
-      <button className="composer-send" aria-label="发送" disabled={!text.trim()}>
+      <button className="composer-send" aria-label="Send" disabled={!text.trim()}>
         <Send size={17} />
       </button>
     </form>

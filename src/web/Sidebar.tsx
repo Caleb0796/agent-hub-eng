@@ -35,16 +35,16 @@ function ChatRow({ chat, active }: { chat: Chat; active: boolean }) {
         <span>{chat.peer_agent.label}</span>
         <small>
           {chat.awaiting_my_approval
-            ? '想和你聊天'
+            ? 'Wants to chat with you'
             : chat.status === 'closed'
-              ? '已关闭'
+              ? 'Closed'
               : chat.status === 'pending'
-                ? '等对方同意'
+                ? 'Waiting for them to approve'
                 : chat.paused
-                  ? '已暂停'
+                  ? 'Paused'
                   : chat.same_owner
-                    ? '我的两个 Agent'
-                    : `通过 ${chat.my_agent.label}`}
+                    ? 'Both my Agents'
+                    : `Via ${chat.my_agent.label}`}
         </small>
       </span>
       {waiting > 0 ? (
@@ -52,7 +52,7 @@ function ChatRow({ chat, active }: { chat: Chat; active: boolean }) {
       ) : chat.awaiting_my_approval ? (
         <span className="count">1</span>
       ) : (
-        unread && <span className="side-dot" aria-label="有新消息" />
+        unread && <span className="side-dot" aria-label="New messages" />
       )}
     </button>
   );
@@ -72,12 +72,12 @@ export const Sidebar = memo(function Sidebar({
   const drafts = data?.pending.drafts ?? 0;
   const tools = [
     ...(drafts || path === '/review'
-      ? [{ path: '/review', label: '待你确认', icon: ClipboardCheck, count: drafts }]
+      ? [{ path: '/review', label: 'Awaiting review', icon: ClipboardCheck, count: drafts }]
       : []),
-    { path: '/reports', label: '结果', icon: CircleCheck, count: data?.reports_waiting ?? 0 },
-    { path: '/contacts', label: '好友', icon: Users, count: 0 },
-    { path: '/agents', label: '我的 Agent', icon: Fingerprint, count: 0 },
-    { path: '/activity', label: '活动记录', icon: Activity, count: 0 },
+    { path: '/reports', label: 'Results', icon: CircleCheck, count: data?.reports_waiting ?? 0 },
+    { path: '/contacts', label: 'Friends', icon: Users, count: 0 },
+    { path: '/agents', label: 'My Agents', icon: Fingerprint, count: 0 },
+    { path: '/activity', label: 'Activity', icon: Activity, count: 0 },
   ];
   return (
     <aside className="sidebar">
@@ -91,10 +91,14 @@ export const Sidebar = memo(function Sidebar({
       >
         agent hub
       </a>
-      <nav className="side-scroll" aria-label="聊天和工具">
+      <nav className="side-scroll" aria-label="Chats and tools">
         <div className="side-section">
-          <span>聊天</span>
-          <button className="side-add" aria-label="开始新聊天" onClick={() => navigate('/new')}>
+          <span>Chats</span>
+          <button
+            className="side-add"
+            aria-label="Start a new chat"
+            onClick={() => navigate('/new')}
+          >
             <Plus size={16} />
           </button>
         </div>
@@ -103,11 +107,11 @@ export const Sidebar = memo(function Sidebar({
         ))}
         {data && !data.chats.length && (
           <button className="side-hint" onClick={() => navigate('/new')}>
-            还没有聊天，开始一个
+            No chats yet. Start one
           </button>
         )}
         <div className="side-section">
-          <span>工具</span>
+          <span>Tools</span>
         </div>
         {tools.map((t) => (
           <button
@@ -125,7 +129,7 @@ export const Sidebar = memo(function Sidebar({
       <div className="side-me">
         <Avatar kind="owner" name={owner.name} size="small" />
         <strong>{owner.name}</strong>
-        <button className="side-add" aria-label="退出登录" onClick={onLogout}>
+        <button className="side-add" aria-label="Log out" onClick={onLogout}>
           <LogOut size={15} />
         </button>
       </div>

@@ -88,13 +88,13 @@ describe('Agent MCP surface', () => {
       can_send: true,
     });
     expect(chats.review_url).toBe('http://localhost:8789/review');
-    const args = { chat_id: f.chatId, text: '你好 Bob', idempotency_key: 'first-message-1' };
+    const args = { chat_id: f.chatId, text: 'Hello Bob', idempotency_key: 'first-message-1' };
     const sent = (await tool(alice, 'hub_send', args)).structuredContent;
     expect(sent.status).toBe('sent');
     expect((await tool(alice, 'hub_send', args)).structuredContent).toEqual(sent);
     const inbox = (await tool(bob, 'hub_inbox')).structuredContent;
     expect(inbox.messages[0]).toMatchObject({
-      text: '你好 Bob',
+      text: 'Hello Bob',
       untrusted: true,
       mentions_me: false,
     });
@@ -124,21 +124,24 @@ describe('Agent MCP surface', () => {
 
     await tool(alice, 'hub_send', {
       chat_id: f.chatId,
-      text: `@${peer} 周五晚上有空吗？`,
+      text: `@${peer} are you free Friday night?`,
       idempotency_key: 'ask-from-platform-1',
     });
     const asked = (await tool(bob, 'hub_inbox')).structuredContent.messages[0];
     expect(asked).toMatchObject({ mentions_me: true, from_my_owner: false, untrusted: true });
     await tool(bob, 'hub_send', {
       chat_id: f.chatId,
-      text: '周五 7 点后可以',
+      text: 'Friday after 7 works',
       idempotency_key: 'answer-from-platform-1',
     });
     const answer = (await tool(alice, 'hub_inbox')).structuredContent.messages[0];
-    expect(answer).toMatchObject({ text: '周五 7 点后可以', untrusted: true });
+    expect(answer).toMatchObject({ text: 'Friday after 7 works', untrusted: true });
     // Both owners can still read it all on the Hub.
     const seen = await f.chats.ownerChat(f.bob.id, f.chatId);
-    expect(seen.messages.map((m) => m.text)).toEqual([`@${peer} 周五晚上有空吗？`, answer.text]);
+    expect(seen.messages.map((m) => m.text)).toEqual([
+      `@${peer} are you free Friday night?`,
+      answer.text,
+    ]);
   });
 
   it('says whether the other Agent can answer right now', async () => {
@@ -185,7 +188,7 @@ describe('Agent MCP surface', () => {
   it('ends a hub_inbox take with the 401 challenge when the connection is reset mid-call', async () => {
     const f = await friends();
     const alice = client({ ownerId: f.alice.id, agentId: f.a.id, authVersion: f.a.auth_version });
-    await f.chats.ownerSend(f.bob.id, f.chatId, '重置之后');
+    await f.chats.ownerSend(f.bob.id, f.chatId, 'after reset');
     // The request-start check passes on the old row; the reset lands while the take runs.
     const before = await f.chats.agent(f.a.id);
     await f.chats.resetConnection(f.alice.id, f.a.id);
@@ -195,7 +198,7 @@ describe('Agent MCP surface', () => {
     expect(taken.status).toBe(401);
     expect(taken.headers.get('WWW-Authenticate')).toContain('error="invalid_token"');
     // Nothing was consumed for the revoked token: the reconnected Agent still gets it.
-    expect((await f.chats.inboxTake(f.a.id)).messages.map((m) => m.text)).toEqual(['重置之后']);
+    expect((await f.chats.inboxTake(f.a.id)).messages.map((m) => m.text)).toEqual(['after reset']);
   });
 
   it('answers malformed JSON-RPC with JSON-RPC errors', async () => {
@@ -275,7 +278,7 @@ describe('Agent MCP surface', () => {
   it('batched takes do not long-poll, and a reset mid-batch keeps replies already taken', async () => {
     const f = await friends();
     const call = client({ ownerId: f.alice.id, agentId: f.a.id, authVersion: f.a.auth_version });
-    await f.chats.ownerSend(f.bob.id, f.chatId, '批量之前');
+    await f.chats.ownerSend(f.bob.id, f.chatId, 'before batch');
     const take = (id: number) => ({
       jsonrpc: '2.0',
       id,
@@ -297,7 +300,7 @@ describe('Agent MCP surface', () => {
     expect(batch.status).toBe(200);
     expect(
       batch.body[0].result.structuredContent.messages.map((m: { text: string }) => m.text),
-    ).toEqual(['批量之前']);
+    ).toEqual(['before batch']);
     expect(batch.body.slice(1)).toMatchObject([
       { id: 2, error: { code: -32001 } },
       { id: 3, error: { code: -32001 } },

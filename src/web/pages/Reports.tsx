@@ -28,13 +28,13 @@ export function ReportsPage({ version }: { version: unknown }) {
     <>
       <div className="page-heading">
         <div>
-          <h1>结果</h1>
-          <p>你的 Agent 办好的事和要问你的问题。只有你能看到。</p>
+          <h1>Results</h1>
+          <p>What your Agent got done and what it needs to ask you. Only you can see this.</p>
         </div>
       </div>
       {!reports.length ? (
-        <Empty icon={<CircleCheck size={22} />} title="还没有结果">
-          交给 Agent 一件事，它办好后会告诉你。
+        <Empty icon={<CircleCheck size={22} />} title="No results yet">
+          Give your Agent a task and it will tell you when it is done.
         </Empty>
       ) : (
         <section className="section">
@@ -48,7 +48,7 @@ export function ReportsPage({ version }: { version: unknown }) {
               <span className="row-main">
                 <strong>{r.text}</strong>
                 <small>
-                  {r.agent_label}，和 {r.peer_label} 的聊天，{when(r.created_at)}
+                  {r.agent_label} · Chat with {r.peer_label} · {when(r.created_at)}
                 </small>
               </span>
             </button>

@@ -196,7 +196,7 @@ router.post('/agents/:id/grants', async (c) => {
 });
 router.post('/agents/hub', async (c) => {
   const u = await write(c);
-  ensure(c.env.MUSE, 'hub_runner_unavailable', 409, '现在还不能一键创建 Agent');
+  ensure(c.env.MUSE, 'hub_runner_unavailable', 409, 'One-click Agents are not available yet.');
   const input = await body(c, z.object({ label: displayNameSchema.optional() }).strict());
   return c.json(await chats(c).createHubAgent(u.id, input.label), 201);
 });

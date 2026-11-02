@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { Check, MessageCircleQuestion, ShieldAlert, Undo2, X } from 'lucide-react';
 import type { ChatView } from '../types';
-import { Avatar, clock, platformName } from '../ui';
+import { Avatar, clock, platformName, shortClock } from '../ui';
 import { MessageText } from './Text';
 
 type Message = ChatView['messages'][number];
@@ -9,10 +9,12 @@ type Draft = ChatView['drafts'][number];
 type Report = ChatView['reports'][number];
 
 function deliveryText(m: Message): string {
-  if (m.text === null) return '已撤回';
-  if (m.withheld) return '已扣下，不会再发给 Agent';
+  if (m.text === null) return 'Withdrawn';
+  if (m.withheld) return "Held back, won't be sent to any Agent";
   // "Taken" only means an Agent fetched it; the Hub cannot know that it was read.
-  return m.taken ? '对方 Agent 已收到' : '等对方 Agent 下次运行时收取';
+  return m.taken
+    ? 'Received by the other Agent'
+    : 'Waiting for the other Agent to fetch it next time it runs';
 }
 
 const sameMessage = (a: Message, b: Message) =>
@@ -43,7 +45,7 @@ export const MessageRow = memo(
       <div className={`msg${continued ? ' continued' : ''}${m.withheld ? ' withheld' : ''}`}>
         <div className="msg-gutter">
           {continued ? (
-            <time className="msg-time-hover">{clock(m.sent_at)}</time>
+            <time className="msg-time-hover">{shortClock(m.sent_at)}</time>
           ) : (
             <Avatar kind={m.sender_kind} name={m.sender_name} platform={platform} />
           )}
@@ -53,19 +55,19 @@ export const MessageRow = memo(
             <div className="msg-head">
               <button
                 className="msg-name"
-                title={`在消息里提及 ${m.sender_name}`}
+                title={`Mention ${m.sender_name} in a message`}
                 onClick={() => onMention(m.sender_name)}
               >
                 {m.sender_name}
               </button>
               <span className={isAgent ? 'role agent' : 'role owner'}>
-                {isAgent ? `${platformName(platform ?? '')} Agent` : '主人'}
+                {isAgent ? `${platformName(platform ?? '')} Agent` : 'Owner'}
               </span>
               <time>{clock(m.sent_at)}</time>
             </div>
           )}
           {m.text === null ? (
-            <div className="msg-text gone">这条消息已撤回</div>
+            <div className="msg-text gone">This message was withdrawn</div>
           ) : (
             <MessageText text={m.text} names={names} myNames={myNames} />
           )}
@@ -74,7 +76,7 @@ export const MessageRow = memo(
               {deliveryText(m)}
               {m.can_withdraw && (
                 <button className="msg-action" onClick={() => onWithdraw(m.id)}>
-                  <Undo2 size={12} /> 撤回
+                  <Undo2 size={12} /> Withdraw
                 </button>
               )}
             </div>
@@ -110,7 +112,7 @@ export const ReportRow = memo(function ReportRow({
       <div className="msg-body">
         <div className="msg-head">
           <span className="msg-name plain">{name}</span>
-          <span className="role draft-tag">只有你能看到</span>
+          <span className="role draft-tag">Only you can see this</span>
           <time>{clock(r.created_at)}</time>
         </div>
         <div className="msg-text">
@@ -153,12 +155,13 @@ export function DraftRow({
       <div className="msg-body">
         <div className="msg-head">
           <span className="msg-name plain">{name}</span>
-          <span className="role draft-tag">只有你能看到</span>
+          <span className="role draft-tag">Only you can see this</span>
         </div>
         <MessageText text={d.text} names={names} myNames={myNames} />
         {dlp && (
           <p className="draft-why">
-            <ShieldAlert size={14} /> 疑似包含密钥（{d.dlp_rules.join('、')}），已拦下。
+            <ShieldAlert size={14} /> Looks like it contains a secret ({d.dlp_rules.join(', ')}), so
+            it was held back.
           </p>
         )}
         <div className="draft-actions">
@@ -167,14 +170,14 @@ export function DraftRow({
             disabled={busy}
             onClick={() => onDecide(d.id, 'approve')}
           >
-            <Check size={14} /> 发送
+            <Check size={14} /> Send
           </button>
           <button
             className="button secondary compact"
             disabled={busy}
             onClick={() => onDecide(d.id, 'reject')}
           >
-            <X size={14} /> 丢弃
+            <X size={14} /> Discard
           </button>
         </div>
       </div>

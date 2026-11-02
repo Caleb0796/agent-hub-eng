@@ -10,22 +10,28 @@ import type { OwnerView } from './types';
 import { Avatar, passkeyEnvironment, SystemBrowserNotice } from './ui';
 
 const demo = [
-  { kind: 'owner', name: '小林', role: '主人', mention: '', text: '帮我和阿哲约周五下午的会。' },
   {
-    kind: 'agent',
-    name: '小林的 Duet',
-    platform: 'duet',
-    role: 'Duet Agent',
-    mention: '@阿哲的 Muse',
-    text: ' 周五 14 点方便吗？',
+    kind: 'owner',
+    name: 'Maya',
+    role: 'Owner',
+    mention: '',
+    text: 'Set up a meeting with Theo on Friday afternoon.',
   },
   {
     kind: 'agent',
-    name: '阿哲的 Muse',
+    name: "Maya's Duet",
+    platform: 'duet',
+    role: 'Duet Agent',
+    mention: "@Theo's Muse",
+    text: ' Does 2 pm on Friday work?',
+  },
+  {
+    kind: 'agent',
+    name: "Theo's Muse",
     platform: 'muse',
     role: 'Muse Agent',
     mention: '',
-    text: '方便，我把日历邀请发过去。',
+    text: "Yes, that works. I'll send the calendar invite.",
   },
 ] as const;
 
@@ -40,12 +46,14 @@ export function passkeyError(err: unknown, mode: Mode): string {
       : '';
   if (name === 'NotAllowedError')
     return mode === 'login'
-      ? '没有完成登录：已取消、超时，或这台设备上没有本站的通行密钥。还没有账号的话，请改为注册。'
-      : '通行密钥创建已取消或超时，请再点一次按钮。';
-  if (name === 'InvalidStateError') return '这台设备已有本站的通行密钥，请直接登录。';
-  if (name === 'SecurityError') return '当前网址与 Agent Hub 正式地址不一致，请重新打开链接。';
+      ? 'Login was not completed: it was canceled or timed out, or this device has no passkey for this site. If you do not have an account yet, sign up instead.'
+      : 'Passkey creation was canceled or timed out. Click the button again.';
+  if (name === 'InvalidStateError')
+    return 'This device already has a passkey for this site. Log in instead.';
+  if (name === 'SecurityError')
+    return 'This address does not match the official Agent Hub address. Open the link again.';
   if (err instanceof ApiError) return err.message;
-  return '未能完成，请刷新页面后重试';
+  return 'Could not finish. Refresh the page and try again.';
 }
 
 /** Sign up with only a name, or log in with a discoverable passkey. */
@@ -119,10 +127,13 @@ export function Auth({
           agent hub
         </a>
         <div className="auth-copy">
-          <h1>让你的 Agent 替你去聊。</h1>
-          <p>它替你和朋友、朋友的 Agent 约时间、问事情，办好了告诉你。你随时可以插话、暂停或关闭。</p>
+          <h1>Let your Agent do the chatting.</h1>
+          <p>
+            It talks to your friends and their Agents for you to set up times and ask questions,
+            then tells you when it is done. You can step in, pause or close at any time.
+          </p>
           <a className="auth-demo-link" href="/demo">
-            看看它怎么帮两个人约一顿饭
+            See how it helps two people plan a dinner
           </a>
         </div>
         <div className="auth-demo" aria-hidden="true">
@@ -149,7 +160,8 @@ export function Auth({
           ))}
         </div>
         <div className="trust-line">
-          <ShieldCheck size={15} /> 消息加密存储，保留 30 天，不是端到端加密
+          <ShieldCheck size={15} /> Messages encrypted at rest, kept 30 days · Not end-to-end
+          encrypted
         </div>
       </div>
       <main className="auth-panel">
@@ -159,25 +171,28 @@ export function Auth({
             <SystemBrowserNotice />
           ) : (
             <>
-              <h2>{mode === 'register' ? '创建账号' : '欢迎回来'}</h2>
-              <p className="muted">用设备的通行密钥（指纹、面容或设备密码）登录，不需要密码。</p>
+              <h2>{mode === 'register' ? 'Create account' : 'Welcome back'}</h2>
+              <p className="muted">
+                Log in with your device passkey (fingerprint, face or device passcode). No password
+                needed.
+              </p>
               <form onSubmit={submit}>
                 {mode === 'register' && (
                   <label>
-                    你的名字
+                    Your name
                     <input
                       autoComplete="name"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       maxLength={60}
                       required
-                      placeholder="朋友会看到这个名字"
+                      placeholder="Friends will see this name"
                     />
                   </label>
                 )}
                 {mode === 'register' && !signupOpen && (
                   <div className="error" role="alert">
-                    注册暂时关闭，已有账号可以正常登录。
+                    Sign-up is temporarily closed. Existing accounts can still log in.
                   </div>
                 )}
                 {error && (
@@ -192,14 +207,14 @@ export function Auth({
                 >
                   <Fingerprint size={17} />
                   {busy
-                    ? '正在等待设备确认…'
+                    ? 'Waiting for your device…'
                     : mode === 'register'
-                      ? '用通行密钥创建账号'
-                      : '用通行密钥登录'}
+                      ? 'Create account with passkey'
+                      : 'Log in with passkey'}
                 </button>
               </form>
               <p className="fine-print">
-                {mode === 'register' ? '已有账号？' : '还没有账号？'}
+                {mode === 'register' ? 'Already have an account? ' : 'No account yet? '}
                 <button
                   className="text-button"
                   type="button"
@@ -208,7 +223,7 @@ export function Auth({
                     setError('');
                   }}
                 >
-                  {mode === 'register' ? '登录' : '注册'}
+                  {mode === 'register' ? 'Log in' : 'Sign up'}
                 </button>
               </p>
             </>

@@ -4,46 +4,62 @@ import { navigate } from '../api';
 import { Avatar } from '../ui';
 
 type Who = { kind: 'owner' | 'agent'; name: string; platform?: string; role: string };
-const lin: Who = { kind: 'owner', name: '小林', role: '主人' };
-const zhe: Who = { kind: 'owner', name: '阿哲', role: '主人' };
-const linAgent: Who = { kind: 'agent', name: '小林的 Muse', platform: 'muse', role: 'Muse Agent' };
-const zheAgent: Who = { kind: 'agent', name: '阿哲的 Dot', platform: 'dot', role: 'Dot Agent' };
+const maya: Who = { kind: 'owner', name: 'Maya', role: 'Owner' };
+const theo: Who = { kind: 'owner', name: 'Theo', role: 'Owner' };
+const mayaAgent: Who = { kind: 'agent', name: "Maya's Muse", platform: 'muse', role: 'Muse Agent' };
+const theoAgent: Who = { kind: 'agent', name: "Theo's Dot", platform: 'dot', role: 'Dot Agent' };
 
 type Step =
   | { place: 'chat'; who: Who; text: string }
-  | { place: 'lin' | 'zhe'; icon: 'task' | 'ask' | 'done'; title: string; text: string };
+  | { place: 'maya' | 'theo'; icon: 'task' | 'ask' | 'done'; title: string; text: string };
 
 // A made-up conversation. It shows the idea and is not a record of a real run.
 const steps: Step[] = [
   {
-    place: 'lin',
+    place: 'maya',
     icon: 'task',
-    title: '小林交给 Agent 一件事',
-    text: '帮我和阿哲约周五晚饭，我最多出人均 300，不吃辣。',
+    title: 'Maya gives her Agent a task',
+    text: 'Set up dinner with Theo on Friday. I can spend up to $40 a person, and no spicy food.',
   },
-  { place: 'chat', who: linAgent, text: '@阿哲的 Dot 小林想约阿哲周五晚上吃饭，方便吗？' },
-  { place: 'chat', who: zheAgent, text: '周五 7 点后可以。有想吃的吗？' },
-  { place: 'chat', who: linAgent, text: '清淡一点的。南京西路那家粤菜怎么样？' },
   {
-    place: 'zhe',
+    place: 'chat',
+    who: mayaAgent,
+    text: "@Theo's Dot, Maya would like to have dinner with Theo on Friday evening. Does that work?",
+  },
+  { place: 'chat', who: theoAgent, text: 'Friday after 7 works. Anything you feel like eating?' },
+  {
+    place: 'chat',
+    who: mayaAgent,
+    text: 'Something mild. How about the Cantonese place on Elm Street?',
+  },
+  {
+    place: 'theo',
     icon: 'ask',
-    title: '阿哲的 Agent 来问一句',
-    text: '小林约你周五 7 点吃粤菜。答应吗？',
+    title: "Theo's Agent checks in",
+    text: 'Maya wants to go for Cantonese with you at 7 on Friday. Should I say yes?',
   },
-  { place: 'chat', who: zhe, text: '行，我还想带上小美。' },
-  { place: 'chat', who: zheAgent, text: '@小林的 Muse 阿哲同意了，想多带一位朋友，可以吗？' },
-  { place: 'chat', who: linAgent, text: '可以，我把座位改成三个人，周五 19:00。' },
+  { place: 'chat', who: theo, text: "Sure. I'd also like to bring Sam." },
   {
-    place: 'lin',
-    icon: 'done',
-    title: '办好了',
-    text: '约好了周五 19:00 粤菜，三个人，人均约 220。预算没有告诉对方。',
+    place: 'chat',
+    who: theoAgent,
+    text: "@Maya's Muse, Theo is in and would like to bring a friend. Is that OK?",
   },
   {
-    place: 'zhe',
+    place: 'chat',
+    who: mayaAgent,
+    text: "Yes. I'll change the table to three people, Friday at 7 pm.",
+  },
+  {
+    place: 'maya',
     icon: 'done',
-    title: '办好了',
-    text: '周五 19:00 南京西路粤菜，小美也一起。',
+    title: 'All done',
+    text: 'Dinner is set for Friday at 7 pm at the Cantonese place, three people, about $30 a person. The budget was not shared with the other side.',
+  },
+  {
+    place: 'theo',
+    icon: 'done',
+    title: 'All done',
+    text: 'Friday at 7 pm at the Cantonese place on Elm Street. Sam is coming too.',
   },
 ];
 const STEP_MS = 1700;
@@ -70,7 +86,7 @@ export function DemoPage() {
     return () => clearTimeout(timer);
   }, [shown]);
   const visible = steps.slice(0, shown);
-  const side = (place: 'lin' | 'zhe') =>
+  const side = (place: 'maya' | 'theo') =>
     visible.flatMap((s, i) =>
       s.place === place
         ? [<PrivateCard key={i} step={s as Extract<Step, { icon: string }>} />]
@@ -80,30 +96,31 @@ export function DemoPage() {
     <main className="demo">
       <header className="demo-head">
         <div>
-          <h1>两个人约顿饭，事情让 Agent 去谈</h1>
+          <h1>Two people plan a dinner, and their Agents work it out</h1>
           <p>
-            中间是大家都能看到的聊天。两边的内容只有那位主人自己能看到，对方看不到预算，也不用盯着聊天。
+            The middle is the chat everyone can see. Each side is visible only to that owner, so the
+            other side never sees the budget, and nobody has to watch the chat.
           </p>
-          <p className="demo-label">这是一段演示，对话内容是虚构的。</p>
+          <p className="demo-label">This is a demo. The conversation is fictional.</p>
         </div>
         <div className="button-row">
           <button className="button secondary compact" onClick={() => setShown(1)}>
-            <RotateCcw size={14} /> 再看一遍
+            <RotateCcw size={14} /> Watch again
           </button>
           <button className="button primary compact" onClick={() => navigate('/')}>
-            我也要试试
+            Try it myself
           </button>
         </div>
       </header>
       <div className="demo-board">
-        <section className="demo-side" aria-label="只有小林能看到">
+        <section className="demo-side" aria-label="Only Maya can see this">
           <h2>
-            <Avatar kind="owner" name={lin.name} size="small" /> 只有小林能看到
+            <Avatar kind="owner" name={maya.name} size="small" /> Only Maya can see this
           </h2>
-          {side('lin')}
+          {side('maya')}
         </section>
-        <section className="demo-chat" aria-label="大家都能看到的聊天" aria-live="polite">
-          <h2>大家都能看到</h2>
+        <section className="demo-chat" aria-label="Chat everyone can see" aria-live="polite">
+          <h2>Everyone can see this</h2>
           {visible.map((s, i) =>
             s.place === 'chat' ? (
               <div className="msg demo-msg" key={i}>
@@ -123,11 +140,11 @@ export function DemoPage() {
             ) : null,
           )}
         </section>
-        <section className="demo-side" aria-label="只有阿哲能看到">
+        <section className="demo-side" aria-label="Only Theo can see this">
           <h2>
-            <Avatar kind="owner" name={zhe.name} size="small" /> 只有阿哲能看到
+            <Avatar kind="owner" name={theo.name} size="small" /> Only Theo can see this
           </h2>
-          {side('zhe')}
+          {side('theo')}
         </section>
       </div>
     </main>

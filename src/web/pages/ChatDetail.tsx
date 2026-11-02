@@ -15,12 +15,12 @@ const RECENT_CHANGE_SECONDS = 7 * 86400;
 
 /** Whether anyone is actually there, because a silent Agent otherwise looks broken. */
 function presence(side: ChatView['sides'][number]): string {
-  if (side.working) return '正在回复…';
-  if (side.runner === 'hub') return '在线';
-  if (!side.last_seen_at) return '还没上线过';
+  if (side.working) return 'replying…';
+  if (side.runner === 'hub') return 'online';
+  if (!side.last_seen_at) return 'never been online';
   return Date.now() / 1000 - side.last_seen_at < AGENT_ONLINE_SECONDS
-    ? '在线'
-    : `${when(side.last_seen_at)} 活跃，上线后才会回复`;
+    ? 'online'
+    : `last active ${when(side.last_seen_at)}, replies once it's back online`;
 }
 
 export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: boolean }) {
@@ -65,7 +65,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
     (messageId: string) => {
       if (
         confirm(
-          '撤回后对方的 Agent 不会再收到。对方主人可能已经看到，你自己的 Agent 也可能已收到。',
+          "Once withdrawn, the other Agent won't receive it. The other owner may have already seen it, and your own Agent may have received it too. Withdraw this message?",
         )
       )
         act(`/api/messages/${messageId}/withdraw`);
@@ -87,14 +87,14 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
         kind: 'agent' as const,
         name: s.agent_label,
         platform: s.platform,
-        role: s.mine ? '我的 Agent' : `${s.owner_name} 的 Agent`,
+        role: s.mine ? 'My Agent' : `${s.owner_name}'s Agent`,
       })),
       ...owners
         .filter((s) => !s.mine)
         .map((s) => ({
           kind: 'owner' as const,
           name: s.owner_name,
-          role: '对方主人',
+          role: 'Other owner',
         })),
     ];
     return {
@@ -137,13 +137,13 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
     return error ? (
       <div className="error">{error}</div>
     ) : (
-      <div className="skeleton" aria-label="正在打开聊天" />
+      <div className="skeleton" aria-label="Opening chat" />
     );
 
   const mine = chat.sides.filter((s) => s.mine),
     me = mine[0],
     peer = chat.sides.find((s) => !s.mine) ?? chat.sides[1];
-  const title = chat.same_owner ? `${me.agent_label} 和 ${peer.agent_label}` : peer.agent_label;
+  const title = chat.same_owner ? `${me.agent_label} and ${peer.agent_label}` : peer.agent_label;
   const pausedByMe = mine.filter((s) => s.paused),
     paused = chat.sides.some((s) => s.paused);
   const changed = chat.sides.find(
@@ -178,7 +178,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
     const key = ++sendKey.current;
     setSending((list) => [...list, { key, text }]);
     void api(`/api/chats/${id}/messages`, 'POST', { text })
-      .then(load, (e: Error) => setError(`没有发出去：${e.message}`))
+      .then(load, (e: Error) => setError(`Couldn't send: ${e.message}`))
       .finally(() => setSending((list) => list.filter((s) => s.key !== key)));
   };
 
@@ -188,7 +188,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
         <header className="chat-head">
           <button
             className="icon-button only-mobile"
-            aria-label="返回聊天列表"
+            aria-label="Back to chats"
             onClick={() => navigate('/')}
           >
             <ArrowLeft size={20} />
@@ -198,13 +198,13 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
             <h1>{title}</h1>
             <p>
               {chat.same_owner
-                ? '我的两个 Agent'
-                : `${peer.owner_name} 的 Agent，${presence(peer)}。你这边是 ${me.agent_label}，${presence(me)}`}
+                ? 'Both my Agents'
+                : `${peer.owner_name}'s Agent: ${presence(peer)}. Your side is ${me.agent_label}: ${presence(me)}`}
             </p>
           </div>
           <button
             className="icon-button"
-            aria-label="聊天设置"
+            aria-label="Chat settings"
             aria-expanded={settings}
             onClick={() => setSettings(!settings)}
           >
@@ -220,8 +220,8 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
           <div className="chat-banner">
             <span>
               {chat.requested_by_me
-                ? '等对方主人同意后才能开始聊天。'
-                : `${peer.owner_name}（名字由本人填写）想让 ${peer.agent_label} 和你的 ${me.agent_label} 聊天。`}
+                ? 'You can start chatting once the other owner approves.'
+                : `${peer.owner_name} (they chose this name) wants ${peer.agent_label} to chat with your ${me.agent_label}.`}
             </span>
             {!chat.requested_by_me && (
               <span className="button-row">
@@ -230,14 +230,14 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
                   disabled={busy}
                   onClick={() => act(`/api/chats/${id}/approve`)}
                 >
-                  同意
+                  Approve
                 </button>
                 <button
                   className="button secondary compact"
                   disabled={busy}
                   onClick={() => act(`/api/chats/${id}/reject`)}
                 >
-                  拒绝
+                  Reject
                 </button>
               </span>
             )}
@@ -245,7 +245,10 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
         )}
         {chat.status === 'closed' && (
           <div className="chat-banner">
-            <span>聊天已关闭，还没被收走的消息不会再发给 Agent。重新开启需要对方同意。</span>
+            <span>
+              This chat is closed. Messages not yet fetched won&apos;t be sent to any Agent.
+              Reopening needs the other owner to approve.
+            </span>
             {!chat.same_owner && !chat.blocked && (
               <button
                 className="button secondary compact"
@@ -254,7 +257,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
                   act('/api/chats', { agentId: me.agent_id, peerAgentId: peer.agent_id })
                 }
               >
-                请求重新开启
+                Request to reopen
               </button>
             )}
           </div>
@@ -263,8 +266,8 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
           <div className="chat-banner">
             <span>
               {pausedByMe.length
-                ? '你暂停了这个聊天，两边的 Agent 都收发不了。你发的消息会在恢复后送达。'
-                : '对方主人暂停了这个聊天，两边的 Agent 都收发不了。'}
+                ? 'You paused this chat, so neither Agent can send or receive. Messages you send will be delivered once it resumes.'
+                : 'The other owner paused this chat, so neither Agent can send or receive.'}
             </span>
             {pausedByMe.map((s) => (
               <button
@@ -273,7 +276,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
                 disabled={busy}
                 onClick={() => act(`/api/chats/${id}/resume`, { agentId: s.agent_id })}
               >
-                解除暂停
+                Resume
               </button>
             ))}
           </div>
@@ -299,15 +302,16 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
         {chat.agent_run_limited && (
           <div className="chat-banner">
             <span>
-              两边的 Agent 已经连续聊了很久，先停下来等人。你发一条消息就能继续，否则 1 小时后恢复。
+              The two Agents have been chatting for a long time, so they stopped to wait for a
+              person. Send a message to continue, or they&apos;ll resume in 1 hour.
             </span>
           </div>
         )}
         {changed && (
           <div className="chat-banner">
             <span>
-              对方 Agent 的连接在 {when(changed.connection_changed_at)}{' '}
-              变更过。不是对方主人本人操作的话，请暂停聊天。
+              The other Agent&apos;s connection changed at {when(changed.connection_changed_at)}. If
+              the other owner did not do this, pause the chat.
             </span>
           </div>
         )}
@@ -321,11 +325,11 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
         >
           {!count && !chat.grants.length && (
             <div className="chat-empty">
-              <strong>说点什么，或者交给 Agent 一件事</strong>
+              <strong>Say something, or give your Agent a task</strong>
               <p>
                 {chat.same_owner
-                  ? '发一条消息，告诉你的 Agent 要做什么。'
-                  : `告诉你的 Agent 要做什么，或者 @${peer.agent_label} 直接和它说话。`}
+                  ? 'Send a message to tell your Agent what to do.'
+                  : `Tell your Agent what to do, or @${peer.agent_label} to talk to it directly.`}
               </p>
             </div>
           )}
@@ -368,7 +372,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
               <div className="msg-body">
                 <div className="msg-head">
                   <span className="msg-name plain">{myNames[0]}</span>
-                  <time>发送中</time>
+                  <time>Sending</time>
                 </div>
                 <div className="msg-text">{s.text}</div>
               </div>
@@ -392,7 +396,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
           {working.map((s) => (
             <div className="typing" key={s.agent_id}>
               <span aria-hidden="true" />
-              {s.agent_label} 正在回复…
+              {s.agent_label} is replying…
             </div>
           ))}
         </div>
@@ -400,7 +404,7 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
           <Composer
             ref={composer}
             people={people}
-            placeholder={`发消息给 ${me.agent_label}，用 @ 叫其他人或 Agent`}
+            placeholder={`Message ${me.agent_label}, or use @ to bring in someone else or another Agent`}
             onSend={send}
           />
         )}
@@ -412,7 +416,11 @@ export function ChatDetail({ id, run, busy }: { id: string; run: Run; busy: bool
           onClose={() => setSettings(false)}
           act={act}
           onCloseChat={() => {
-            if (confirm('关闭后，还没被收走的消息会被扣下，重新开启需要对方同意。要关闭吗？'))
+            if (
+              confirm(
+                'Closing holds back messages not yet fetched, and reopening needs the other owner to approve. Close this chat?',
+              )
+            )
               act(`/api/chats/${id}/close`);
           }}
         />

@@ -141,7 +141,7 @@ async function handle(env: RunnerEnv, chats: RunnerChats, agentId: string, work:
     // The key holds until an owner speaks, so this asks once however long the other side goes on.
     await chats.agentReport(agentId, {
       chat_id: work.chat_id,
-      text: '我们和对方的 Agent 已经来回聊了很多轮，我先停下来。你说一句，我再继续。',
+      text: "I've gone back and forth with the other Agent for a long time, so I'm stopping here. Say something and I'll carry on.",
       needs_owner: true,
       idempotency_key: `hub-limit:${work.chat_id}:${work.last_owner_seq}`,
     });

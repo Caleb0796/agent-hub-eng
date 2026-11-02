@@ -25,18 +25,19 @@ const ReviewPage = lazy(async () => ({ default: (await import('./pages/Review'))
 
 // Requests and messages to confirm already show as badges in the sidebar.
 const notificationText: Record<string, string> = {
-  invite_accepted: '有人接受了你的邀请',
-  chat_approved: '对方同意了你的聊天请求',
-  connection_changed: '有好友的 Agent 连接变更过，不是对方本人操作的话请暂停聊天',
+  invite_accepted: 'Someone accepted your invite.',
+  chat_approved: 'The other owner approved your chat request.',
+  connection_changed:
+    "A friend's Agent connection changed. If your friend did not do this themselves, pause the chat.",
 };
 
 const pageTitles: Record<string, string> = {
-  '/new': '开始新聊天',
-  '/reports': '结果',
-  '/review': '待你确认',
-  '/contacts': '好友',
-  '/agents': '我的 Agent',
-  '/activity': '活动记录',
+  '/new': 'Start a new chat',
+  '/reports': 'Results',
+  '/review': 'Awaiting review',
+  '/contacts': 'Friends',
+  '/agents': 'My Agents',
+  '/activity': 'Activity',
 };
 
 export function App() {
@@ -71,7 +72,7 @@ export function App() {
       }
     } catch (e) {
       if (e instanceof ApiError && e.code === 'login_required') setOwner(null);
-      else setError(e instanceof Error ? e.message : '无法更新状态');
+      else setError(e instanceof Error ? e.message : 'Could not refresh the status.');
     }
   }, []);
   usePoll(refresh, 6000, !!owner);
@@ -89,7 +90,7 @@ export function App() {
           );
           return;
         }
-        setError(e instanceof Error ? e.message : '操作未完成');
+        setError(e instanceof Error ? e.message : 'The action was not completed.');
       } finally {
         setBusy(false);
       }
@@ -126,7 +127,7 @@ export function App() {
         <DemoPage />
       </Suspense>
     );
-  if (booting) return <div className="loading-page">正在打开 Agent Hub…</div>;
+  if (booting) return <div className="loading-page">Opening Agent Hub…</div>;
   const fallback = <div className="skeleton" />;
   if (path === '/i')
     return (
@@ -162,7 +163,11 @@ export function App() {
       <div className="main-pane">
         {title && (
           <header className="page-bar only-mobile">
-            <button className="icon-button" aria-label="返回聊天列表" onClick={() => navigate('/')}>
+            <button
+              className="icon-button"
+              aria-label="Back to chats"
+              onClick={() => navigate('/')}
+            >
               <ArrowLeft size={20} />
             </button>
             <span>{title}</span>
@@ -171,7 +176,7 @@ export function App() {
         {error && (
           <div className="error dismissible" role="alert">
             {error}
-            <button className="icon-button" aria-label="关闭提示" onClick={() => setError('')}>
+            <button className="icon-button" aria-label="Dismiss" onClick={() => setError('')}>
               <X size={16} />
             </button>
           </div>
@@ -179,14 +184,14 @@ export function App() {
         {kinds.length > 0 && (
           <div className="note-bar">
             <Bell size={16} />
-            <span>{kinds.map((kind) => notificationText[kind]).join('；')}</span>
+            <span>{kinds.map((kind) => notificationText[kind]).join(' ')}</span>
             <button
               className="text-button"
               onClick={() =>
                 void run(async () => void (await api('/api/notifications/seen', 'POST')))
               }
             >
-              知道了
+              Got it
             </button>
           </div>
         )}
