@@ -62,7 +62,7 @@ async function authorize(
   const html = await page.text(),
     handle = /name="handle" value="([^"]+)"/.exec(html)?.[1];
   expect(handle).toBeTruthy();
-  expect(html).toContain('客户端名称由申请方提供');
+  expect(html).toContain('The client name is provided by the requester');
   expect(html).toContain(new URL(redirect).hostname);
   if (redirect !== callback) {
     // A known native callback fixes the platform; only loopback tests may choose one.

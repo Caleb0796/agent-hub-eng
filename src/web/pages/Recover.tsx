@@ -22,9 +22,10 @@ export function RecoverPage({ onLogin }: { onLogin: (o: OwnerView) => void }) {
   return (
     <main className="workspace">
       <section className="panel">
-        <h1>找回账号</h1>
+        <h1>Recover account</h1>
         <p className="muted">
-          为这个账号创建新的通行密钥。完成后，旧的通行密钥和所有旧登录都会失效。链接只能用一次。
+          Create a new passkey for this account. When you finish, your old passkeys and all existing
+          logins stop working. The link can be used only once.
         </p>
         {error && <div className="error">{error}</div>}
         <button
@@ -54,7 +55,7 @@ export function RecoverPage({ onLogin }: { onLogin: (o: OwnerView) => void }) {
             }
           }}
         >
-          <Fingerprint size={18} /> 创建新的通行密钥
+          <Fingerprint size={18} /> Create new passkey
         </button>
       </section>
     </main>

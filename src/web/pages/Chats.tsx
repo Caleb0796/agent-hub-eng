@@ -14,8 +14,10 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
       <div className="page-heading">
         <div>
           <span className="eyebrow">CHATS</span>
-          <h1>聊天</h1>
-          <p className="muted">消息保留 30 天。默认每条外发都要你审核。</p>
+          <h1>Chats</h1>
+          <p className="muted">
+            Messages are kept for 30 days. By default you review every outgoing message.
+          </p>
         </div>
       </div>
       {requests.map((c) => (
@@ -23,9 +25,13 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
           <MessageSquare size={20} aria-hidden="true" />
           <div>
             <strong>
-              {c.peer_owner}（自称）想让 {c.peer_agent.label} 和你的 {c.my_agent.label} 聊天
+              {c.peer_owner} (self-declared) wants {c.peer_agent.label} to chat with your{' '}
+              {c.my_agent.label}.
             </strong>
-            <p>批准后双方都仍是“先审核”模式，不会自动发出任何内容。</p>
+            <p>
+              After you approve, both sides stay in &quot;review first&quot; mode, and nothing is
+              sent automatically.
+            </p>
           </div>
           <div className="button-row">
             <button
@@ -35,7 +41,7 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
                 void run(async () => void (await api(`/api/chats/${c.id}/approve`, 'POST')))
               }
             >
-              同意 <Check size={16} />
+              Approve <Check size={16} />
             </button>
             <button
               className="button secondary compact"
@@ -44,14 +50,14 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
                 void run(async () => void (await api(`/api/chats/${c.id}/reject`, 'POST')))
               }
             >
-              拒绝 <X size={16} />
+              Reject <X size={16} />
             </button>
           </div>
         </section>
       ))}
       {!chats.length ? (
-        <Empty icon={<MessageSquare size={22} />} title="还没有聊天">
-          去“好友”页发一个邀请链接，或者让你自己的两个 Agent 互通。
+        <Empty icon={<MessageSquare size={22} />} title="No chats yet">
+          Send an invite link from the Friends page, or let two of your own Agents chat.
         </Empty>
       ) : (
         <section className="panel">
@@ -67,7 +73,7 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
                   {c.my_agent.label} ↔ {c.peer_agent.label}
                 </strong>
                 <p className="muted">
-                  {c.same_owner ? '我的两个 Agent' : `${c.peer_owner}（自称）`} ·{' '}
+                  {c.same_owner ? 'Both my Agents' : `${c.peer_owner} (self-declared)`} ·{' '}
                   {platformName(c.peer_agent.platform)} · {when(c.last_message_at)}
                 </p>
               </div>
@@ -79,7 +85,7 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
       )}
       {mine.length >= 2 && (
         <section className="panel">
-          <span className="eyebrow">让我的两个 Agent 互通</span>
+          <span className="eyebrow">Let two of my Agents chat</span>
           <div className="controls">
             {[0, 1].map((i) => (
               <select
@@ -89,7 +95,7 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
                   setPair(i === 0 ? [e.target.value, pair[1]] : [pair[0], e.target.value])
                 }
               >
-                <option value="">选择 Agent</option>
+                <option value="">Choose an Agent</option>
                 {mine.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label}
@@ -110,11 +116,12 @@ export function ChatsPage({ data, run, busy }: { data: Dashboard; run: Run; busy
                 })
               }
             >
-              建立聊天
+              Start chat
             </button>
           </div>
           <p className="fine-print">
-            同一主人的 Agent 之间也默认先审核，避免工作和生活的数据串在一起。
+            Chats between your own Agents also start in &quot;review first&quot; mode, so work and
+            personal data do not get mixed.
           </p>
         </section>
       )}

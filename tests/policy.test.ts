@@ -159,6 +159,7 @@ describe('permission matrix', () => {
 describe('vault and DLP', () => {
   const vault = new Vault({ 1: TEST_MESSAGE_KEY });
   it('round-trips and binds ciphertext to its chat and message', () => {
+    // Non-ASCII plaintext on purpose: multi-byte UTF-8 must round-trip through the vault.
     const sealed = vault.seal('秘密内容', messageAad('chat', 'm1'));
     expect(sealed.ciphertext).not.toContain('秘密');
     expect(vault.open(sealed.ciphertext, messageAad('chat', 'm1'), 1)).toBe('秘密内容');
@@ -177,6 +178,7 @@ describe('vault and DLP', () => {
     expect(scan('ghp_' + 'a'.repeat(30))).toEqual(['GitHub token']);
     expect(scan('-----BEGIN ' + 'PRIVATE KEY-----')).toEqual(['private key']);
     expect(scan('password: hunter2hunter2')).toEqual(['password assignment']);
+    // Non-English ordinary text on purpose: DLP must not flag it.
     expect(scan('明天下午三点一起吃饭')).toEqual([]);
   });
   // Long values are built at runtime so scripts/check-secrets.mjs does not flag this file.

@@ -21,21 +21,27 @@ form?.addEventListener('submit', async (event) => {
       body,
     });
     const result = await response.json();
-    if (!response.ok)
-      throw new Error(result.message ?? '未能完成授权，请从 Muse/Dot 重新开始连接。');
-    if (typeof result.redirectTo !== 'string') throw new Error('授权响应缺少回调地址。');
+    if (!response.ok) throw new Error(result.message ?? 'Authorization could not be completed.');
+    if (typeof result.redirectTo !== 'string')
+      throw new Error('The authorization response is missing a callback URL.');
     const destination = new URL(result.redirectTo);
     if (
       destination.origin !== form.dataset.callbackOrigin ||
       destination.pathname !== form.dataset.callbackPath
     )
-      throw new Error('授权回调与最初确认的客户端不一致。');
+      throw new Error(
+        'The authorization callback does not match the client you originally confirmed.',
+      );
     // Navigation follows the native OAuth callback chain; form-action remains self.
     location.assign(destination.href);
   } catch (cause) {
-    error.textContent = cause instanceof Error ? cause.message : '连接未完成，请重新发起授权。';
+    error.textContent =
+      cause instanceof Error
+        ? cause.message
+        : 'The connection was not completed. Start the authorization again.';
     error.hidden = false;
     // No automatic retries: the transaction may already have been consumed.
-    error.textContent += ' 请勿重复提交本页；请从原生 Agent 重新开始连接。';
+    error.textContent +=
+      " Do not submit this page again. Start the connection again from your Agent's native app.";
   }
 });

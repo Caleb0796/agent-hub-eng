@@ -33,6 +33,7 @@ describe('passkey owner authentication', () => {
   it('registers with only a name, rejects replay, and logs back in with the discoverable passkey', async () => {
     const browser = makeBrowser(),
       device = await authenticator();
+    // A non-ASCII name on purpose: UTF-8 display names must survive registration.
     const { setup, verified } = await register(browser, device, '小林');
     expect(verified.status).toBe(201);
     const first = await verified.json<{ owner: { id: string; name: string } }>();

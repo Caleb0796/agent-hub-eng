@@ -60,7 +60,9 @@ app.get('/.well-known/agent-hub.json', (c) =>
     },
   }),
 );
-app.all('/api/*', (c) => c.json({ error: 'not_found', message: '接口不存在' }, 404));
+app.all('/api/*', (c) =>
+  c.json({ error: 'not_found', message: 'This API endpoint does not exist.' }, 404),
+);
 app.all('/.well-known/*', (c) => c.json({ error: 'not_found' }, 404));
 app.get('*', async (c) => {
   const response = await c.env.ASSETS.fetch(c.req.raw);
@@ -76,13 +78,19 @@ export function errorResponse(error: unknown, env: Env): Response {
   }
   if (error instanceof CimdFetchError)
     return Response.json(
-      { error: 'client_metadata_unavailable', message: '无法核验客户端元数据，请稍后重试' },
+      {
+        error: 'client_metadata_unavailable',
+        message: 'Could not verify the client metadata. Please try again later.',
+      },
       { status: 400 },
     );
   if (error instanceof HubError)
     return Response.json({ error: error.code, message: error.message }, { status: error.status });
   if (error instanceof z.ZodError || error instanceof SyntaxError)
-    return Response.json({ error: 'invalid_request', message: '请求格式不正确' }, { status: 400 });
+    return Response.json(
+      { error: 'invalid_request', message: 'The request format is invalid.' },
+      { status: 400 },
+    );
   const requestId = crypto.randomUUID();
   console.error(
     JSON.stringify({
@@ -93,7 +101,11 @@ export function errorResponse(error: unknown, env: Env): Response {
     }),
   );
   return Response.json(
-    { error: 'internal_error', message: '暂时无法完成请求', request_id: requestId },
+    {
+      error: 'internal_error',
+      message: 'The request could not be completed right now.',
+      request_id: requestId,
+    },
     { status: 500 },
   );
 }

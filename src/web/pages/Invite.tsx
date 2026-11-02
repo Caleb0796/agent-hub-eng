@@ -19,12 +19,15 @@ function PreviewCard({ preview }: { preview: Preview }) {
       <MessageSquare size={19} />
       <div>
         <strong>
-          {preview.inviter_name}（自称）
+          {preview.inviter_name} (self-declared)
           {preview.agent
-            ? `想让自己的 ${preview.agent.label}（${platformName(preview.agent.platform)}）和你的 Agent 聊天`
-            : '想加你为好友'}
+            ? ` wants their ${preview.agent.label} (${platformName(preview.agent.platform)}) to chat with your Agent.`
+            : ' wants to add you as a friend.'}
         </strong>
-        <p>链接 {when(preview.expires_at)} 前有效，在你点“开始聊天”时才会用掉。</p>
+        <p>
+          The link is valid until {when(preview.expires_at)} and is used up only when you click
+          &quot;Start chat&quot;.
+        </p>
       </div>
     </div>
   );
@@ -71,7 +74,10 @@ export function InvitePage({
       <PreviewCard preview={preview} />
       {needsAgent && !mine.length && (
         <>
-          <p className="muted">先连接一个你的 Agent。连接完成后这里会自动更新，链接不会失效。</p>
+          <p className="muted">
+            Connect one of your Agents first. This page updates automatically once it is connected,
+            and the link stays valid.
+          </p>
           <ConnectGuide />
         </>
       )}
@@ -79,9 +85,9 @@ export function InvitePage({
         <section className="panel">
           {needsAgent && (
             <label>
-              用我的哪个 Agent 和对方聊
+              Your Agent for this chat
               <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-                <option value="">请选择</option>
+                <option value="">Choose an Agent</option>
                 {mine.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label} · {platformName(a.platform)}
@@ -91,7 +97,8 @@ export function InvitePage({
             </label>
           )}
           <p className="fine-print">
-            开始后双方都默认每条先审核，不会自动发出任何内容。你可以随时暂停、关闭或拉黑。
+            Once started, both sides review every message first by default, so nothing is sent
+            automatically. You can pause, close or block at any time.
           </p>
           {/* This page has no app shell, so App's error box is never visible here. */}
           {acceptError && (
@@ -117,12 +124,12 @@ export function InvitePage({
                   navigate(accepted.chat_id ? `/chats/${accepted.chat_id}` : '/contacts');
                 } catch (e) {
                   if (e instanceof ApiError && e.code === 'reauthentication_required') throw e;
-                  setAcceptError(e instanceof Error ? e.message : '操作未完成');
+                  setAcceptError(e instanceof Error ? e.message : 'The action was not completed.');
                 }
               })
             }
           >
-            {needsAgent ? '开始聊天' : '加为好友'}
+            {needsAgent ? 'Start chat' : 'Add as friend'}
           </button>
         </section>
       )}

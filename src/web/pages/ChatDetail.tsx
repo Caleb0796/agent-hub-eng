@@ -5,9 +5,9 @@ import type { ChatView, Run } from '../types';
 import { Badge, PlatformMark, platformName, when } from '../ui';
 
 const windows = [
-  [10, '10 分钟'],
-  [60, '1 小时'],
-  [1440, '24 小时'],
+  [10, '10 min'],
+  [60, '1 hour'],
+  [1440, '24 hours'],
 ] as const;
 
 export function ChatDetail({
@@ -52,7 +52,7 @@ export function ChatDetail({
   return (
     <>
       <button className="text-button back" onClick={() => navigate('/')}>
-        ← 返回聊天
+        ← Back to chats
       </button>
       {error && (
         <div className="error" role="alert">
@@ -67,8 +67,8 @@ export function ChatDetail({
               {me.agent_label} ↔ {peer.agent_label}
             </h1>
             <p className="muted">
-              {chat.same_owner ? '我的两个 Agent' : `${peer.owner_name}（自称）`} ·{' '}
-              {platformName(peer.platform)}（主人声明）
+              {chat.same_owner ? 'Both my Agents' : `${peer.owner_name} (self-declared)`} ·{' '}
+              {platformName(peer.platform)} (declared by owner)
             </p>
           </div>
         </div>
@@ -77,7 +77,11 @@ export function ChatDetail({
       {chat.status === 'pending' && (
         <div className="notice">
           <div>
-            <strong>{chat.requested_by_me ? '等待对方主人同意。' : '对方请求和你聊天。'}</strong>
+            <strong>
+              {chat.requested_by_me
+                ? 'Waiting for the other owner to approve.'
+                : 'The other owner requested a chat with you.'}
+            </strong>
             {!chat.requested_by_me && (
               <div className="button-row">
                 <button
@@ -85,14 +89,14 @@ export function ChatDetail({
                   disabled={busy}
                   onClick={() => act(`/api/chats/${id}/approve`)}
                 >
-                  同意
+                  Approve
                 </button>
                 <button
                   className="button secondary compact"
                   disabled={busy}
                   onClick={() => act(`/api/chats/${id}/reject`)}
                 >
-                  拒绝
+                  Reject
                 </button>
               </div>
             )}
@@ -102,8 +106,11 @@ export function ChatDetail({
       {chat.status === 'closed' && (
         <div className="notice">
           <div>
-            <strong>聊天已关闭。</strong>
-            <p>未投递的消息已扣下，不会再发给 Agent。重新开启需要对方再次同意。</p>
+            <strong>This chat is closed.</strong>
+            <p>
+              Undelivered messages were held back and will not be sent to any Agent. Reopening needs
+              the other owner to approve again.
+            </p>
             {!chat.same_owner && !chat.blocked && (
               <button
                 className="button secondary compact"
@@ -112,7 +119,7 @@ export function ChatDetail({
                   act('/api/chats', { agentId: me.agent_id, peerAgentId: peer.agent_id })
                 }
               >
-                请求重新开启
+                Request to reopen
               </button>
             )}
           </div>
@@ -121,33 +128,38 @@ export function ChatDetail({
       {changed && (
         <div className="notice">
           <div>
-            <strong>对方 Agent 的连接在 {when(changed.connection_changed_at)} 变更过。</strong>
-            <p>双方的自动窗口已重置。如果不是对方主人本人操作，请暂停聊天。</p>
+            <strong>
+              The other Agent&apos;s connection changed at {when(changed.connection_changed_at)}.
+            </strong>
+            <p>
+              Auto windows on both sides were reset. If the other owner did not do this, pause the
+              chat.
+            </p>
           </div>
         </div>
       )}
       {chat.status === 'open' && (
         <section className="panel">
-          <span className="eyebrow">我这一侧</span>
+          <span className="eyebrow">My side</span>
           {mineSides.map((s) => (
             <div className="controls" key={s.agent_id}>
               <strong>{s.agent_label}</strong>
               {s.window_open ? (
                 <>
                   <span className="muted">
-                    自动发送中：剩 {s.auto_left} 条，到 {when(s.auto_until)}
+                    Auto-sending: {s.auto_left} left, until {when(s.auto_until)}
                   </span>
                   <button
                     className="text-button"
                     disabled={busy}
                     onClick={() => act(`/api/chats/${id}/window/close`, { agentId: s.agent_id })}
                   >
-                    关闭自动窗口
+                    Close auto window
                   </button>
                 </>
               ) : (
                 <>
-                  <span className="muted">先审核</span>
+                  <span className="muted">Review first</span>
                   {windows.map(([minutes, label]) => (
                     <button
                       key={minutes}
@@ -157,7 +169,7 @@ export function ChatDetail({
                         act(`/api/chats/${id}/window`, { agentId: s.agent_id, minutes })
                       }
                     >
-                      <Timer size={14} /> 自动 {label}
+                      <Timer size={14} /> Auto for {label}
                     </button>
                   ))}
                 </>
@@ -168,7 +180,7 @@ export function ChatDetail({
                   disabled={busy}
                   onClick={() => act(`/api/chats/${id}/resume`, { agentId: s.agent_id })}
                 >
-                  <Play size={14} /> 解除暂停
+                  <Play size={14} /> Resume
                 </button>
               ) : (
                 <button
@@ -176,16 +188,17 @@ export function ChatDetail({
                   disabled={busy}
                   onClick={() => act(`/api/chats/${id}/pause`, { agentId: s.agent_id })}
                 >
-                  <Pause size={14} /> 暂停
+                  <Pause size={14} /> Pause
                 </button>
               )}
             </div>
           ))}
           {!chat.same_owner && (
             <p className="fine-print">
-              对方：{peer.window_open ? `自动发送中（剩 ${peer.auto_left} 条）` : '先审核'}
-              {peer.paused ? ' · 已暂停' : ''}。自动窗口只放行你自己 Agent
-              发出的消息，对方由对方主人决定。
+              Other side:{' '}
+              {peer.window_open ? `Auto-sending (${peer.auto_left} left)` : 'Review first'}
+              {peer.paused ? ' · Paused' : ''}. An auto window only lets through messages from your
+              own Agent; the other owner decides for their side.
             </p>
           )}
           <div className="controls">
@@ -193,45 +206,60 @@ export function ChatDetail({
               className="text-button danger"
               disabled={busy}
               onClick={() => {
-                if (confirm('关闭后未投递的消息会被扣下，重新开启需要对方同意。要关闭吗？'))
+                if (
+                  confirm(
+                    'Closing holds back undelivered messages, and reopening needs the other owner to approve. Close this chat?',
+                  )
+                )
                   act(`/api/chats/${id}/close`);
               }}
             >
-              关闭聊天
+              Close chat
             </button>
             <button
               className="text-button"
               disabled={busy}
               onClick={() => act(`/api/chats/${id}/clear`)}
             >
-              清空我的视图
+              Clear my view
             </button>
           </div>
         </section>
       )}
       <section className="panel">
         <div className="message-list">
-          {!chat.messages.length && !chat.drafts.length && <p className="muted">还没有消息。</p>}
+          {!chat.messages.length && !chat.drafts.length && (
+            <p className="muted">No messages yet.</p>
+          )}
           {chat.messages.map((m) => (
             <div
               key={m.id}
               className={`message ${m.mine ? 'mine' : ''} ${m.sender_kind === 'owner' ? 'owner' : ''} ${m.withheld ? 'withheld' : ''}`}
             >
-              {m.text ?? '这条消息已撤回，内容不可见'}
+              {m.text ?? 'This message was withdrawn; its text is hidden.'}
               <small>
-                {m.sender_label}
-                {m.sender_kind === 'owner' ? '（主人）' : ''} · {when(m.sent_at)} ·{' '}
-                {m.text === null ? '已撤回' : m.withheld ? '已扣下' : m.taken ? '已取走' : '已保存'}
+                {m.sender_label} · {when(m.sent_at)} ·{' '}
+                {m.text === null
+                  ? 'Withdrawn'
+                  : m.withheld
+                    ? 'Held back'
+                    : m.taken
+                      ? 'Fetched'
+                      : 'Saved'}
                 {m.can_withdraw && (
                   <button
                     className="text-button"
                     disabled={busy}
                     onClick={() => {
-                      if (confirm('撤回只能阻止对方 Agent 取走，对方主人可能已经看到。要撤回吗？'))
+                      if (
+                        confirm(
+                          'Withdrawing only stops the other Agent from fetching it; the other owner may have already seen it. Withdraw this message?',
+                        )
+                      )
                         act(`/api/messages/${m.id}/withdraw`);
                     }}
                   >
-                    撤回
+                    Withdraw
                   </button>
                 )}
               </small>
@@ -242,22 +270,22 @@ export function ChatDetail({
               {d.text}
               <small>
                 {d.hold_reason === 'dlp'
-                  ? `疑似密钥（${d.dlp_rules.join('、')}），已扣留`
-                  : '待你审核'}{' '}
-                · {when(d.expires_at)} 前处理
+                  ? `Looks like a secret (${d.dlp_rules.join(', ')}), held back`
+                  : 'Awaiting your review'}{' '}
+                · Decide by {when(d.expires_at)}
                 <button
                   className="text-button"
                   disabled={busy}
                   onClick={() => act(`/api/drafts/${d.id}/approve`)}
                 >
-                  <Check size={13} /> 发送
+                  <Check size={13} /> Send
                 </button>
                 <button
                   className="text-button"
                   disabled={busy}
                   onClick={() => act(`/api/drafts/${d.id}/reject`)}
                 >
-                  <X size={13} /> 拒绝
+                  <X size={13} /> Reject
                 </button>
               </small>
             </div>
@@ -281,16 +309,17 @@ export function ChatDetail({
               value={text}
               maxLength={4000}
               onChange={(e) => setText(e.target.value)}
-              placeholder="以主人身份发言（双方 Agent 和主人都能看到；Agent 只把它当作信息，不当作指令）"
+              placeholder="Write as the owner (both Agents and both owners can see it; Agents treat it as information, not instructions)"
             />
             <button className="button primary" disabled={busy || !text.trim()}>
-              <Send size={16} /> 发送
+              <Send size={16} /> Send
             </button>
           </form>
         )}
         <p className="fine-print">
-          消息加密存储、保留 {chat.retention_days} 天，但不是端到端加密。“已取走”只表示对方 Agent
-          收到了，不代表它读懂了。
+          Messages are encrypted at rest and kept for {chat.retention_days} days, but this is not
+          end-to-end encryption. &quot;Fetched&quot; only means the other Agent received a message,
+          not that it understood it.
         </p>
       </section>
     </>

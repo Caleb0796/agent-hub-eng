@@ -16,26 +16,28 @@ export function ReviewPage({ run, busy, version }: { run: Run; busy: boolean; ve
       <div className="page-heading">
         <div>
           <span className="eyebrow">REVIEW</span>
-          <h1>待审核</h1>
+          <h1>Awaiting review</h1>
           <p className="muted">
-            这些是你的 Agent 想发出的消息。只有这个页面（{location.origin}
-            /review）是真正的审核入口。
+            These are messages your Agent wants to send. Only this page ({location.origin}
+            /review) is the real place to review them.
           </p>
         </div>
       </div>
       {!items.length ? (
-        <Empty icon={<Check size={22} />} title="没有待审核的消息">
-          Agent 发出的新消息会出现在这里。
+        <Empty icon={<Check size={22} />} title="No messages awaiting review">
+          New messages your Agent wants to send will appear here.
         </Empty>
       ) : (
         items.map((d) => (
           <section className="panel" key={d.id}>
             <p className="muted">
-              {d.agent_label} → {d.peer_label} · {when(d.created_at)} · {when(d.expires_at)} 前处理
+              {d.agent_label} → {d.peer_label} · {when(d.created_at)} · Decide by{' '}
+              {when(d.expires_at)}
             </p>
             {d.hold_reason === 'dlp' && (
               <div className="error">
-                <ShieldAlert size={16} /> 疑似包含密钥：{d.dlp_rules.join('、')}。确认无误才发送。
+                <ShieldAlert size={16} /> Possible secret: {d.dlp_rules.join(', ')}. Send only if
+                you are sure it is safe.
               </div>
             )}
             <div className="message draft">{d.text}</div>
@@ -50,7 +52,7 @@ export function ReviewPage({ run, busy, version }: { run: Run; busy: boolean; ve
                   })
                 }
               >
-                <Check size={15} /> 发送
+                <Check size={15} /> Send
               </button>
               <button
                 className="button secondary compact"
@@ -62,10 +64,10 @@ export function ReviewPage({ run, busy, version }: { run: Run; busy: boolean; ve
                   })
                 }
               >
-                <X size={15} /> 拒绝
+                <X size={15} /> Reject
               </button>
               <button className="text-button" onClick={() => navigate(`/chats/${d.chat_id}`)}>
-                查看聊天
+                View chat
               </button>
             </div>
           </section>

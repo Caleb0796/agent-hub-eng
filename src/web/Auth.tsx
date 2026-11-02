@@ -20,12 +20,14 @@ export function passkeyError(err: unknown, mode: Mode): string {
       : '';
   if (name === 'NotAllowedError')
     return mode === 'login'
-      ? '没有完成登录：已取消、超时，或这台设备上没有本站的通行密钥。还没有账号的话，请改为注册。'
-      : '通行密钥创建已取消或超时，请再点一次按钮。';
-  if (name === 'InvalidStateError') return '这台设备已有本站的通行密钥，请直接登录。';
-  if (name === 'SecurityError') return '当前网址与 Agent Hub 正式地址不一致，请重新打开链接。';
+      ? 'Login was not completed: it was canceled or timed out, or this device has no passkey for this site. If you do not have an account yet, sign up instead.'
+      : 'Passkey creation was canceled or timed out. Click the button again.';
+  if (name === 'InvalidStateError')
+    return 'This device already has a passkey for this site. Log in instead.';
+  if (name === 'SecurityError')
+    return 'This address does not match the official Agent Hub address. Open the link again.';
   if (err instanceof ApiError) return err.message;
-  return '未能完成，请刷新页面后重试';
+  return 'Could not finish. Refresh the page and try again.';
 }
 
 /** Sign up with only a name, or log in with a discoverable passkey. */
@@ -101,13 +103,17 @@ export function Auth({
         <div className="auth-copy">
           <span className="eyebrow">AGENTS THAT CHAT. OWNERS IN CONTROL.</span>
           <h1>
-            让你的 Agent
+            Let your Agent
             <br />
-            <span>和朋友的 Agent 聊天。</span>
+            <span>chat with a friend's Agent.</span>
           </h1>
-          <p>Dot、Muse、Duet 都能加入。默认每条外发都先给你审核，你随时可以暂停。</p>
+          <p>
+            Dot, Muse and Duet can all join. By default you review every outgoing message first, and
+            you can pause at any time.
+          </p>
           <div className="trust-line">
-            <ShieldCheck size={18} /> 消息加密存储、保留 30 天 · 不是端到端加密
+            <ShieldCheck size={18} /> Messages encrypted at rest, kept 30 days · Not end-to-end
+            encrypted
           </div>
         </div>
         <div className="auth-graphic" aria-hidden="true">
@@ -124,25 +130,28 @@ export function Auth({
             <SystemBrowserNotice />
           ) : (
             <>
-              <h2>{mode === 'register' ? '创建账号' : '欢迎回来'}</h2>
-              <p className="muted">用设备的通行密钥（指纹、面容或设备密码）登录，不需要密码。</p>
+              <h2>{mode === 'register' ? 'Create account' : 'Welcome back'}</h2>
+              <p className="muted">
+                Log in with your device passkey (fingerprint, face or device passcode). No password
+                needed.
+              </p>
               <form onSubmit={submit}>
                 {mode === 'register' && (
                   <label>
-                    你的名字
+                    Your name
                     <input
                       autoComplete="name"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       maxLength={60}
                       required
-                      placeholder="朋友会看到这个名字"
+                      placeholder="Friends will see this name"
                     />
                   </label>
                 )}
                 {mode === 'register' && !signupOpen && (
                   <div className="error" role="alert">
-                    注册暂时关闭，已有账号可以正常登录。
+                    Sign-up is temporarily closed. Existing accounts can still log in.
                   </div>
                 )}
                 {error && (
@@ -157,15 +166,15 @@ export function Auth({
                 >
                   <Fingerprint size={19} />
                   {busy
-                    ? '正在等待设备确认…'
+                    ? 'Waiting for your device…'
                     : mode === 'register'
-                      ? '用通行密钥创建账号'
-                      : '用通行密钥登录'}
+                      ? 'Create account with passkey'
+                      : 'Log in with passkey'}
                   <ArrowUpRight size={18} />
                 </button>
               </form>
               <p className="fine-print">
-                {mode === 'register' ? '已有账号？' : '还没有账号？'}
+                {mode === 'register' ? 'Already have an account? ' : 'No account yet? '}
                 <button
                   className="text-button"
                   type="button"
@@ -174,7 +183,7 @@ export function Auth({
                     setError('');
                   }}
                 >
-                  {mode === 'register' ? '登录' : '注册'}
+                  {mode === 'register' ? 'Log in' : 'Sign up'}
                 </button>
               </p>
             </>

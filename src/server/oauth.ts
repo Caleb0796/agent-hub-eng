@@ -69,7 +69,7 @@ oauthRoutes.get('/authorize', async (c) => {
     permittedRedirect(parsed.redirectUri, c.env),
     'unsupported_client',
     400,
-    '这个回调地址尚未列入支持范围',
+    'This callback address is not supported yet.',
   );
   let user;
   try {
@@ -95,29 +95,29 @@ oauthRoutes.get('/authorize', async (c) => {
   // With an existing same-platform Agent the owner must choose explicitly; never default to a
   // binding, so one connection cannot silently take over another Agent's identity.
   const choice = eligible.length
-    ? `<fieldset><legend>连接到哪个 Agent</legend>${eligible
+    ? `<fieldset><legend>Choose which Agent to connect</legend>${eligible
         .map(
           (a) =>
-            `<label class="scope"><input type="radio" name="agentId" value="${escape(a.id)}" required><span>重新连接「${escape(a.label)}」· ${escape(platformNames[a.platform])} · ID ${escape(a.id.slice(0, 8))}</span></label>`,
+            `<label class="scope"><input type="radio" name="agentId" value="${escape(a.id)}" required><span>Reconnect "${escape(a.label)}" · ${escape(platformNames[a.platform])} · ID ${escape(a.id.slice(0, 8))}</span></label>`,
         )
         .join(
           '',
-        )}<label class="scope"><input type="radio" name="agentId" value="new" required><span>新建一个 Agent</span></label></fieldset>`
+        )}<label class="scope"><input type="radio" name="agentId" value="new" required><span>Create a new Agent</span></label></fieldset>`
     : '<input type="hidden" name="agentId" value="new">';
   const platformField = platform
     ? `<input type="hidden" name="platform" value="${platform}">`
-    : `<label>平台（本地测试）<select name="platform">${(['dot', 'muse', 'duet'] as const)
+    : `<label>Platform (local testing)<select name="platform">${(['dot', 'muse', 'duet'] as const)
         .map((p) => `<option value="${p}">${platformNames[p]}</option>`)
         .join('')}</select></label>`;
-  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权连接 · Agent Hub</title><link rel="stylesheet" href="/consent.css"><script src="/consent.js" defer></script></head><body>
-    <main><a class="brand" href="/">AGENT HUB</a><p class="eyebrow">连接授权</p><h1>把你的 Agent<br>连接到 Agent Hub。</h1>
-    <p>当前主人：<strong>${escape(user.display_name)}</strong></p>
-    <div class="client"><strong>${escape(details.clientName)}</strong><p>${details.clientDomain ? `客户端声明发布于 ${escape(details.clientDomain)}` : '客户端名称由申请方提供，不能证明厂商身份。'}</p><p>授权将返回 <strong>${escape(details.redirectHost)}</strong>。${details.redirectIsLoopback ? '这是你电脑上的本地测试客户端。' : ''}</p></div>
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize connection · Agent Hub</title><link rel="stylesheet" href="/consent.css"><script src="/consent.js" defer></script></head><body>
+    <main><a class="brand" href="/">AGENT HUB</a><p class="eyebrow">Connection authorization</p><h1>Connect your Agent<br>to Agent Hub.</h1>
+    <p>Current owner: <strong>${escape(user.display_name)}</strong></p>
+    <div class="client"><strong>${escape(details.clientName)}</strong><p>${details.clientDomain ? `The client declares it is published at ${escape(details.clientDomain)}.` : 'The client name is provided by the requester and does not prove who the vendor is.'}</p><p>Authorization returns to <strong>${escape(details.redirectHost)}</strong>.${details.redirectIsLoopback ? ' This is a local test client on your computer.' : ''}</p></div>
     <form method="post" action="/authorize" data-callback-origin="${escape(new URL(parsed.redirectUri).origin)}" data-callback-path="${escape(new URL(parsed.redirectUri).pathname)}"><input type="hidden" name="handle" value="${escape(transaction.handle)}"><input type="hidden" name="csrf" value="${escape(getCookie(c, 'agent-hub-csrf') ?? '')}">
     ${choice}${platformField}
-    <p class="note">连接后，这个 Agent 可以查看你的聊天、收取消息，并发送消息。默认每条外发都要你审核；它不能加好友、批准聊天或修改任何设置。</p>
-    <p role="alert" id="consent-error" hidden></p><noscript>请启用 JavaScript 以安全完成授权跳转。</noscript>
-    <div class="actions"><button name="decision" value="deny" class="secondary" formnovalidate>拒绝</button><button name="decision" value="approve">授权连接</button></div></form></main></body></html>`;
+    <p class="note">Once connected, this Agent can view your chats, receive messages and send messages. By default you review every outgoing message. It cannot add friends, approve chats or change any settings.</p>
+    <p role="alert" id="consent-error" hidden></p><noscript>Please enable JavaScript to complete the authorization redirect safely.</noscript>
+    <div class="actions"><button name="decision" value="deny" class="secondary" formnovalidate>Reject</button><button name="decision" value="approve">Authorize connection</button></div></form></main></body></html>`;
   transaction.headers.set('Content-Type', 'text/html; charset=utf-8');
   transaction.headers.set('Cache-Control', 'no-store');
   // Native form POSTs under no-referrer can carry Origin:null. Send only the
@@ -136,7 +136,7 @@ oauthRoutes.post('/authorize', async (c) => {
     secretEqual(await sha256(csrf), user.csrf_hash),
     'csrf_failed',
     403,
-    '授权页面已失效，请重新开始',
+    'This authorization page has expired. Please start again.',
   );
   const handle = z.string().min(20).max(2048).parse(form.get('handle')),
     oauth = c.env.OAUTH_PROVIDER;
@@ -149,7 +149,7 @@ oauthRoutes.post('/authorize', async (c) => {
     existing === 'new' || z.uuid().safeParse(existing).success,
     'agent_selection_required',
     400,
-    '请选择要重新连接的 Agent，或明确选择新建',
+    'Choose the Agent to reconnect, or explicitly choose to create a new one.',
   );
   const granted = [scopes.read, scopes.message];
   const approved = await oauth.approveConsent(c.req.raw, handle, { scope: granted });
@@ -157,17 +157,27 @@ oauthRoutes.post('/authorize', async (c) => {
     permittedRedirect(approved.request.redirectUri, c.env),
     'unsupported_client',
     400,
-    '不支持这个客户端',
+    'This client is not supported.',
   );
   const service = chatService(c.env),
     declared = platformSchema.parse(form.get('platform')),
     native = clientPlatform(approved.request.redirectUri);
-  ensure(!native || native === declared, 'platform_mismatch', 400, '所选平台与授权回调不一致');
+  ensure(
+    !native || native === declared,
+    'platform_mismatch',
+    400,
+    'The selected platform does not match the authorization callback.',
+  );
   const agent =
     existing === 'new'
       ? await service.createAgent(user.id, declared)
       : await service.ownAgent(user.id, existing);
-  ensure(agent.platform === declared, 'platform_mismatch', 400, '连接平台不匹配');
+  ensure(
+    agent.platform === declared,
+    'platform_mismatch',
+    400,
+    'The connection platform does not match.',
+  );
   const connected = await service.onAuthorized(user.id, agent.id, approved.request.clientId);
   // completeAuthorization looks the client up again (a fresh CIMD fetch). Any failure here
   // must be a 5xx so the runtime rolls back the Agent changes and the consumed consent above,
@@ -191,7 +201,11 @@ oauthRoutes.post('/authorize', async (c) => {
           error_type: error instanceof Error ? error.name : 'unknown',
         }),
       );
-      throw new HubError('authorization_incomplete', 503, '暂时无法完成授权，请稍后重试');
+      throw new HubError(
+        'authorization_incomplete',
+        503,
+        'Authorization could not be completed right now. Please try again later.',
+      );
     });
   return consentReply(c.req.header('Accept'), redirectTo, approved.headers);
 });

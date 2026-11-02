@@ -48,13 +48,13 @@ export function origin(env: Env): URL {
     value.origin === env.PUBLIC_ORIGIN && !value.username && !value.password,
     'bad_configuration',
     503,
-    '服务地址配置无效',
+    'The service address is misconfigured.',
   );
   ensure(
     value.protocol === 'https:' || (local && env.APP_ENV !== 'production'),
     'bad_configuration',
     503,
-    '正式环境需要 HTTPS',
+    'Production requires HTTPS.',
   );
   return value;
 }
@@ -73,14 +73,14 @@ export function requireBrowserOrigin(c: HubContext): void {
     c.req.header('Origin') === origin(c.env).origin,
     'invalid_origin',
     403,
-    '请从 Agent Hub 页面操作',
+    'Please do this from the Agent Hub page.',
   );
   const site = c.req.header('Sec-Fetch-Site');
   ensure(
     !site || site === 'same-origin' || site === 'none',
     'invalid_origin',
     403,
-    '不接受跨站操作',
+    'Cross-site requests are not accepted.',
   );
 }
 
@@ -105,7 +105,12 @@ export async function owner(
   options: { write?: boolean; fresh?: boolean } = {},
 ): Promise<Owner> {
   const cookie = getCookie(c, sessionCookieName(c.env));
-  ensure(cookie && /^[A-Za-z0-9_-]{43}$/.test(cookie), 'login_required', 401, '请使用通行密钥登录');
+  ensure(
+    cookie && /^[A-Za-z0-9_-]{43}$/.test(cookie),
+    'login_required',
+    401,
+    'Please log in with your passkey.',
+  );
   const sessionHash = await sha256(cookie);
   const row = await db(c.env)
     .prepare(
@@ -115,7 +120,7 @@ export async function owner(
     )
     .bind(sessionHash, nowSeconds())
     .first<Owner>();
-  ensure(row, 'login_required', 401, '登录已失效，请重新登录');
+  ensure(row, 'login_required', 401, 'Your login has expired. Please log in again.');
   if (options.write) {
     requireBrowserOrigin(c);
     const csrf = c.req.header('X-CSRF-Token');
@@ -123,7 +128,7 @@ export async function owner(
       csrf && secretEqual(await sha256(csrf), row.csrf_hash),
       'csrf_failed',
       403,
-      '页面授权已失效，请刷新后重试',
+      'This page has expired. Please refresh and try again.',
     );
   }
   if (options.fresh)
@@ -131,7 +136,7 @@ export async function owner(
       nowSeconds() - row.authenticated_at <= 900,
       'reauthentication_required',
       401,
-      '请再次使用通行密钥确认身份',
+      "Please confirm it's you with your passkey again.",
     );
   return row;
 }
@@ -175,7 +180,12 @@ export async function rateLimit(
     )
     .bind(keyHash, bucket, (bucket + 2) * interval, limit + 1)
     .first<{ count: number }>();
-  ensure(row && row.count <= limit, 'rate_limited', 429, '操作过于频繁，请稍后重试');
+  ensure(
+    row && row.count <= limit,
+    'rate_limited',
+    429,
+    'Too many requests. Please try again later.',
+  );
 }
 /** The current count of a rateLimit bucket, without spending from it. */
 export async function rateLimitUsed(env: Env, key: string, interval = 60): Promise<number> {
@@ -196,7 +206,12 @@ export async function rateLimitRefund(env: Env, key: string, interval = 60): Pro
 export async function boundedRequest(request: Request, maximum = 96 * 1024): Promise<Request> {
   if (!request.body) return request;
   const stated = Number(request.headers.get('Content-Length'));
-  ensure(!Number.isFinite(stated) || stated <= maximum, 'body_too_large', 413, '请求超过大小限制');
+  ensure(
+    !Number.isFinite(stated) || stated <= maximum,
+    'body_too_large',
+    413,
+    'The request exceeds the size limit.',
+  );
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -206,7 +221,7 @@ export async function boundedRequest(request: Request, maximum = 96 * 1024): Pro
     size += value.byteLength;
     if (size > maximum) {
       await reader.cancel();
-      throw new HubError('body_too_large', 413, '请求超过大小限制');
+      throw new HubError('body_too_large', 413, 'The request exceeds the size limit.');
     }
     chunks.push(value);
   }

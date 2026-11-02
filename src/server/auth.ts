@@ -103,7 +103,7 @@ async function consumeChallenge(c: HubContext, kind: Kind): Promise<Challenge> {
     token && /^[A-Za-z0-9_-]{43}$/.test(token),
     'challenge_expired',
     400,
-    '验证已过期，请重新开始',
+    'The verification expired. Please start again.',
   );
   const result = await db(c.env)
     .prepare(
@@ -112,7 +112,12 @@ async function consumeChallenge(c: HubContext, kind: Kind): Promise<Challenge> {
     .bind(await sha256(token), kind, nowSeconds())
     .first<Challenge>();
   deleteCookie(c, challengeCookie(c), { path: '/', secure: origin(c.env).protocol === 'https:' });
-  ensure(result, 'challenge_expired', 400, '验证已过期或已使用，请重新开始');
+  ensure(
+    result,
+    'challenge_expired',
+    400,
+    'The verification expired or was already used. Please start again.',
+  );
   return result;
 }
 async function createSession(c: HubContext, userId: string): Promise<void> {
@@ -137,7 +142,7 @@ async function ownerView(c: HubContext, userId: string) {
     .prepare('SELECT id,display_name FROM users WHERE id=?')
     .bind(userId)
     .first<{ id: string; display_name: string }>();
-  ensure(user, 'login_required', 401, '登录已失效');
+  ensure(user, 'login_required', 401, 'Your login has expired.');
   return publicOwner(user);
 }
 
@@ -162,7 +167,7 @@ async function creationOptions(c: HubContext, userId: string, name: string) {
   });
 }
 async function verifyCreation(c: HubContext, response: unknown, challenge: string) {
-  ensure(registrationResponse(response), 'invalid_credential', 400, '无效的通行密钥');
+  ensure(registrationResponse(response), 'invalid_credential', 400, 'Invalid passkey.');
   let result;
   try {
     result = await verifyRegistrationResponse({
@@ -174,9 +179,13 @@ async function verifyCreation(c: HubContext, response: unknown, challenge: strin
       supportedAlgorithmIDs: algorithms,
     });
   } catch {
-    throw new HubError('passkey_verification_failed', 400, '通行密钥验证失败，请重新开始');
+    throw new HubError(
+      'passkey_verification_failed',
+      400,
+      'Passkey verification failed. Please start again.',
+    );
   }
-  ensure(result.verified, 'passkey_verification_failed', 400, '通行密钥验证失败');
+  ensure(result.verified, 'passkey_verification_failed', 400, 'Passkey verification failed.');
   return result.registrationInfo;
 }
 function insertPasskey(
@@ -214,14 +223,20 @@ router.use('*', async (c, next) => {
 const signupDayKey = () => `signup-day:${Math.floor(nowSeconds() / 86400)}`;
 const signupFull = async (env: Env) =>
   (await rateLimitUsed(env, signupDayKey(), 86400)) >= env.SIGNUP_DAILY_CAP;
-const signupFullMessage = '今日注册名额已满，请明天再试；已有账号不受影响';
+const signupFullMessage =
+  "Today's sign-up limit has been reached. Please try again tomorrow; existing accounts are not affected.";
 
 router.get('/signup-status', async (c) =>
   c.json({ open: c.env.SIGNUP_MODE === 'open' && !(await signupFull(c.env)) }),
 );
 
 router.post('/register/options', async (c) => {
-  ensure(c.env.SIGNUP_MODE === 'open', 'signup_closed', 403, '注册暂时关闭，已有账号可以正常登录');
+  ensure(
+    c.env.SIGNUP_MODE === 'open',
+    'signup_closed',
+    403,
+    'Sign-up is temporarily closed. Existing accounts can still log in.',
+  );
   ensure(!(await signupFull(c.env)), 'signup_closed', 403, signupFullMessage);
   const { name } = z
     .object({ name: displayNameSchema })
@@ -235,7 +250,7 @@ router.post('/register/options', async (c) => {
 });
 
 router.post('/register/verify', async (c) => {
-  ensure(c.env.SIGNUP_MODE === 'open', 'signup_closed', 403, '注册暂时关闭');
+  ensure(c.env.SIGNUP_MODE === 'open', 'signup_closed', 403, 'Sign-up is temporarily closed.');
   const body = await c.req.json<{ response: unknown }>();
   const challenge = await consumeChallenge(c, 'register'),
     data = asJson<{ name: string; userId: string }>(challenge.data_json);
@@ -257,7 +272,11 @@ router.post('/register/verify', async (c) => {
     ]);
   } catch {
     await rateLimitRefund(c.env, dayKey, 86400);
-    throw new HubError('registration_conflict', 409, '注册信息已变化，请重新开始');
+    throw new HubError(
+      'registration_conflict',
+      409,
+      'The sign-up details changed. Please start again.',
+    );
   }
   await createSession(c, data.userId);
   return c.json({ owner: await ownerView(c, data.userId) }, 201);
@@ -275,7 +294,7 @@ router.post('/login/options', async (c) => {
 router.post('/login/verify', async (c) => {
   const response: unknown = await c.req.json();
   // Check the shape before the challenge is spent.
-  ensure(authenticationResponse(response), 'invalid_credential', 400, '无效的通行密钥');
+  ensure(authenticationResponse(response), 'invalid_credential', 400, 'Invalid passkey.');
   const challenge = await consumeChallenge(c, 'login'),
     connection = db(c.env);
   const credential = await connection
@@ -284,13 +303,13 @@ router.post('/login/verify', async (c) => {
     )
     .bind(response.id)
     .first<CredentialRow>();
-  ensure(credential, 'passkey_verification_failed', 401, '通行密钥验证失败');
+  ensure(credential, 'passkey_verification_failed', 401, 'Passkey verification failed.');
   ensure(
     !response.response.userHandle ||
       response.response.userHandle === base64url(utf8(credential.user_id)),
     'passkey_verification_failed',
     401,
-    '通行密钥账号不匹配',
+    'The passkey does not match this account.',
   );
   let result;
   try {
@@ -307,14 +326,19 @@ router.post('/login/verify', async (c) => {
       },
     });
   } catch {
-    throw new HubError('passkey_verification_failed', 401, '通行密钥验证失败');
+    throw new HubError('passkey_verification_failed', 401, 'Passkey verification failed.');
   }
-  ensure(result.verified, 'passkey_verification_failed', 401, '通行密钥验证失败');
+  ensure(result.verified, 'passkey_verification_failed', 401, 'Passkey verification failed.');
   const changed = await connection
     .prepare('UPDATE passkeys SET counter=? WHERE id=? AND counter=?')
     .bind(result.authenticationInfo.newCounter, credential.id, credential.counter)
     .run();
-  ensure(changed.meta.changes === 1, 'authentication_conflict', 409, '验证状态变化，请重试登录');
+  ensure(
+    changed.meta.changes === 1,
+    'authentication_conflict',
+    409,
+    'The verification state changed. Please try logging in again.',
+  );
   await createSession(c, credential.user_id);
   return c.json({ owner: await ownerView(c, credential.user_id) });
 });
@@ -330,7 +354,12 @@ router.post('/passkeys/verify', async (c) => {
   const user = await owner(c, { write: true, fresh: true });
   const challenge = await consumeChallenge(c, 'add_passkey'),
     data = asJson<{ userId: string }>(challenge.data_json);
-  ensure(data.userId === user.id, 'challenge_expired', 400, '验证已过期，请重新开始');
+  ensure(
+    data.userId === user.id,
+    'challenge_expired',
+    400,
+    'The verification expired. Please start again.',
+  );
   const body = await c.req.json<{ response: unknown }>();
   const info = await verifyCreation(c, body?.response, challenge.challenge);
   const connection = db(c.env);
@@ -351,7 +380,12 @@ async function recoveryLink(c: HubContext, token: string) {
     )
     .bind(await sha256(token), nowSeconds())
     .first<{ token_hash: string; user_id: string; display_name: string }>();
-  ensure(link, 'recovery_unavailable', 410, '恢复链接无效或已过期，请联系运维');
+  ensure(
+    link,
+    'recovery_unavailable',
+    410,
+    'The recovery link is invalid or has expired. Please contact the operator.',
+  );
   return link;
 }
 const recoveryInput = z.object({ token: z.string().min(20).max(100) }).strict();
@@ -379,7 +413,12 @@ router.post('/recover/verify', async (c) => {
     )
     .bind(at, data.tokenHash, at)
     .run();
-  ensure(used.meta.changes === 1, 'recovery_unavailable', 410, '恢复链接已被使用');
+  ensure(
+    used.meta.changes === 1,
+    'recovery_unavailable',
+    410,
+    'The recovery link has already been used.',
+  );
   await connection.batch([
     connection.prepare('DELETE FROM passkeys WHERE user_id=?').bind(data.userId),
     connection.prepare('DELETE FROM browser_sessions WHERE user_id=?').bind(data.userId),

@@ -187,7 +187,7 @@ try {
   const first = (
     await tool(dot.token, 'hub_send', {
       chat_id: chatId,
-      text: '你好，Muse',
+      text: 'Hello, Muse',
       idempotency_key: 'e2e-first-1',
     })
   ).structuredContent;
@@ -197,7 +197,7 @@ try {
   const delivered = (await tool(muse.token, 'hub_inbox')).structuredContent.messages;
   assert.deepEqual(
     delivered.map((m) => m.text),
-    ['你好，Muse'],
+    ['Hello, Muse'],
   );
   steps.push('Agent send held for owner review, then delivered once');
 
@@ -205,7 +205,7 @@ try {
   const auto = (
     await tool(dot.token, 'hub_send', {
       chat_id: chatId,
-      text: '自动发送',
+      text: 'auto send',
       idempotency_key: 'e2e-auto-1',
     })
   ).structuredContent;
@@ -213,7 +213,7 @@ try {
   const reply = (
     await tool(muse.token, 'hub_send', {
       chat_id: chatId,
-      text: '收到',
+      text: 'got it',
       idempotency_key: 'e2e-reply-1',
     })
   ).structuredContent;
@@ -223,14 +223,14 @@ try {
   await post(bob, `/api/chats/${chatId}/pause`);
   const paused = await tool(dot.token, 'hub_send', {
     chat_id: chatId,
-    text: '暂停中',
+    text: 'while paused',
     idempotency_key: 'e2e-paused-1',
   });
   assert.equal(paused.structuredContent.error, 'chat_paused');
   await post(bob, `/api/chats/${chatId}/resume`);
   assert.equal(
     (await tool(muse.token, 'hub_inbox')).structuredContent.messages[0].text,
-    '自动发送',
+    'auto send',
   );
   steps.push('pause froze both Agents; resume delivered the waiting message');
 
@@ -248,7 +248,7 @@ try {
   steps.push('connection reset invalidated the old token immediately');
 
   const rows = (await client.execute('SELECT ciphertext FROM messages')).rows;
-  assert.ok(rows.length >= 2 && rows.every((r) => !String(r.ciphertext).includes('你好')));
+  assert.ok(rows.length >= 2 && rows.every((r) => !String(r.ciphertext).includes('Hello, Muse')));
   steps.push('database holds ciphertext only');
 
   await mkdir('.output', { recursive: true });

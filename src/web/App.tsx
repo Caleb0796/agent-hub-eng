@@ -23,13 +23,14 @@ import { RecoverPage } from './pages/Recover';
 import { ReviewPage } from './pages/Review';
 
 const notificationText: Record<string, string> = {
-  invite_accepted: '有人接受了你的邀请',
-  chat_request: '收到新的聊天请求',
-  chat_approved: '对方同意了你的聊天请求',
-  connection_changed: '有好友的 Agent 连接已变更，自动窗口已重置',
-  window_opened: '好友打开了自动窗口，你可以决定是否也打开',
-  review: '你的 Agent 有新消息待审核',
-  dlp_hold: '你的 Agent 想发出疑似密钥的内容，已扣留',
+  invite_accepted: 'Someone accepted your invite.',
+  chat_request: 'You have a new chat request.',
+  chat_approved: 'The other owner approved your chat request.',
+  connection_changed:
+    "A friend's Agent connection changed, so the auto windows in its chats were reset.",
+  window_opened: 'A friend opened an auto window. You can decide whether to open yours too.',
+  review: 'Your Agent has new messages awaiting review.',
+  dlp_hold: 'Your Agent tried to send something that looks like a secret. It was held back.',
 };
 
 export function App() {
@@ -58,7 +59,7 @@ export function App() {
       setData(await api<Dashboard>('/api/dashboard'));
     } catch (e) {
       if (e instanceof ApiError && e.code === 'login_required') setOwner(null);
-      else setError(e instanceof Error ? e.message : '无法更新状态');
+      else setError(e instanceof Error ? e.message : 'Could not refresh the status.');
     }
   }, [owner]);
   useEffect(() => {
@@ -80,7 +81,7 @@ export function App() {
         );
         return;
       }
-      setError(e instanceof Error ? e.message : '操作未完成');
+      setError(e instanceof Error ? e.message : 'The action was not completed.');
     } finally {
       setBusy(false);
     }
@@ -89,7 +90,7 @@ export function App() {
     return (
       <div className="loading-page">
         <span className="brand-mark">a</span>
-        <p>正在打开 Agent Hub…</p>
+        <p>Opening Agent Hub…</p>
       </div>
     );
   if (path === '/i')
@@ -108,17 +109,17 @@ export function App() {
   const section = path.split('/')[1] || 'chats';
   const pending = data?.pending;
   const nav = [
-    { id: 'chats', label: '聊天', icon: MessageSquare, path: '/', count: pending?.requests },
+    { id: 'chats', label: 'Chats', icon: MessageSquare, path: '/', count: pending?.requests },
     {
       id: 'review',
-      label: '待审核',
+      label: 'Awaiting review',
       icon: ClipboardCheck,
       path: '/review',
       count: pending?.drafts,
     },
-    { id: 'contacts', label: '好友', icon: Users, path: '/contacts' },
-    { id: 'agents', label: '我的 Agent', icon: Fingerprint, path: '/agents' },
-    { id: 'activity', label: '活动记录', icon: Activity, path: '/activity' },
+    { id: 'contacts', label: 'Friends', icon: Users, path: '/contacts' },
+    { id: 'agents', label: 'My Agents', icon: Fingerprint, path: '/agents' },
+    { id: 'activity', label: 'Activity', icon: Activity, path: '/activity' },
   ];
   const notes = data?.notifications ?? [];
   return (
@@ -134,7 +135,7 @@ export function App() {
         >
           <span className="brand-mark">a</span>agent hub
         </a>
-        <nav aria-label="主导航">
+        <nav aria-label="Main navigation">
           {nav.map((n) => (
             <button
               key={n.id}
@@ -149,8 +150,11 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-note">
-          <strong>不是端到端加密。</strong>
-          <p>消息加密存储、保留 30 天，Hub 技术上能解密。不要传密码、证件等敏感资料。</p>
+          <strong>Not end-to-end encrypted.</strong>
+          <p>
+            Messages are encrypted at rest and kept for 30 days, and the Hub can technically decrypt
+            them. Do not send passwords, ID documents or other sensitive data.
+          </p>
         </div>
         <div className="profile">
           <span className="avatar">{owner.name.slice(0, 1)}</span>
@@ -159,7 +163,7 @@ export function App() {
           </div>
           <button
             className="icon-button"
-            aria-label="退出登录"
+            aria-label="Log out"
             onClick={() =>
               void run(async () => {
                 await api('/api/auth/logout', 'POST');
@@ -174,8 +178,8 @@ export function App() {
       </aside>
       <div className="main-shell">
         <header className="topbar">
-          <span>{nav.find((n) => n.id === section)?.label ?? '聊天'}</span>
-          <button className="icon-button" aria-label="刷新" onClick={() => void refresh()}>
+          <span>{nav.find((n) => n.id === section)?.label ?? 'Chats'}</span>
+          <button className="icon-button" aria-label="Refresh" onClick={() => void refresh()}>
             <RefreshCw size={17} />
           </button>
         </header>
@@ -183,7 +187,7 @@ export function App() {
           {error && (
             <div className="error dismissible" role="alert">
               {error}
-              <button className="icon-button" aria-label="关闭提示" onClick={() => setError('')}>
+              <button className="icon-button" aria-label="Dismiss" onClick={() => setError('')}>
                 <X size={16} />
               </button>
             </div>
@@ -201,7 +205,7 @@ export function App() {
                     void run(async () => void (await api('/api/notifications/seen', 'POST')))
                   }
                 >
-                  知道了
+                  Got it
                 </button>
               </div>
             </div>

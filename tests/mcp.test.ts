@@ -88,14 +88,14 @@ describe('Agent MCP surface', () => {
       can_send: true,
     });
     expect(chats.review_url).toBe('http://localhost:8789/review');
-    const args = { chat_id: f.chatId, text: '你好 Bob', idempotency_key: 'first-message-1' };
+    const args = { chat_id: f.chatId, text: 'Hello Bob', idempotency_key: 'first-message-1' };
     const sent = (await tool(alice, 'hub_send', args)).structuredContent;
     expect(sent.status).toBe('pending_review');
     expect((await tool(alice, 'hub_send', args)).structuredContent).toEqual(sent);
     expect((await tool(alice, 'hub_chats')).structuredContent.owner_pending).toBe(1);
     await f.chats.approveDraft(f.alice.id, sent.draft_id);
     const inbox = (await tool(bob, 'hub_inbox')).structuredContent;
-    expect(inbox.messages[0]).toMatchObject({ text: '你好 Bob', untrusted: true });
+    expect(inbox.messages[0]).toMatchObject({ text: 'Hello Bob', untrusted: true });
     expect(inbox.untrusted_notice).toContain('untrusted');
     expect((await tool(bob, 'hub_inbox')).structuredContent.messages).toHaveLength(0);
     const history = (await tool(bob, 'hub_inbox', { chat_id: f.chatId, after_seq: 0 }))
@@ -136,7 +136,7 @@ describe('Agent MCP surface', () => {
   it('ends a hub_inbox take with the 401 challenge when the connection is reset mid-call', async () => {
     const f = await friends();
     const alice = client({ ownerId: f.alice.id, agentId: f.a.id, authVersion: f.a.auth_version });
-    await f.chats.ownerSend(f.bob.id, f.chatId, '重置之后');
+    await f.chats.ownerSend(f.bob.id, f.chatId, 'after reset');
     // The request-start check passes on the old row; the reset lands while the take runs.
     const before = await f.chats.agent(f.a.id);
     await f.chats.resetConnection(f.alice.id, f.a.id);
@@ -146,7 +146,7 @@ describe('Agent MCP surface', () => {
     expect(taken.status).toBe(401);
     expect(taken.headers.get('WWW-Authenticate')).toContain('error="invalid_token"');
     // Nothing was consumed for the revoked token: the reconnected Agent still gets it.
-    expect((await f.chats.inboxTake(f.a.id)).messages.map((m) => m.text)).toEqual(['重置之后']);
+    expect((await f.chats.inboxTake(f.a.id)).messages.map((m) => m.text)).toEqual(['after reset']);
   });
 
   it('answers malformed JSON-RPC with JSON-RPC errors', async () => {
@@ -226,7 +226,7 @@ describe('Agent MCP surface', () => {
   it('batched takes do not long-poll, and a reset mid-batch keeps replies already taken', async () => {
     const f = await friends();
     const call = client({ ownerId: f.alice.id, agentId: f.a.id, authVersion: f.a.auth_version });
-    await f.chats.ownerSend(f.bob.id, f.chatId, '批量之前');
+    await f.chats.ownerSend(f.bob.id, f.chatId, 'before batch');
     const take = (id: number) => ({
       jsonrpc: '2.0',
       id,
@@ -248,7 +248,7 @@ describe('Agent MCP surface', () => {
     expect(batch.status).toBe(200);
     expect(
       batch.body[0].result.structuredContent.messages.map((m: { text: string }) => m.text),
-    ).toEqual(['批量之前']);
+    ).toEqual(['before batch']);
     expect(batch.body.slice(1)).toMatchObject([
       { id: 2, error: { code: -32001 } },
       { id: 3, error: { code: -32001 } },

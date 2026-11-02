@@ -49,7 +49,7 @@ export class Vault {
 
   private key(version: number): Buffer {
     const key = this.keys.get(version);
-    if (!key) throw new HubError('key_unavailable', 503, '消息密钥不可用');
+    if (!key) throw new HubError('key_unavailable', 503, 'The message key is unavailable.');
     return key;
   }
 }

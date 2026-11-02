@@ -6,23 +6,23 @@ export const platformName = (p: string) => platformNames[p as Platform] ?? p;
 
 export const when = (at: number | null | undefined) =>
   at
-    ? new Date(at * 1000).toLocaleString('zh-CN', {
+    ? new Date(at * 1000).toLocaleString('en-US', {
         month: 'numeric',
         day: 'numeric',
-        hour: '2-digit',
+        hour: 'numeric',
         minute: '2-digit',
       })
     : '—';
 
 const labels: Record<string, [string, 'good' | 'pending' | 'quiet']> = {
-  online: ['已上线', 'good'],
-  authorized: ['已授权', 'pending'],
-  not_connected: ['未连接', 'quiet'],
-  retired: ['已退役', 'quiet'],
-  open: ['聊天中', 'good'],
-  pending: ['待对方同意', 'pending'],
-  closed: ['已关闭', 'quiet'],
-  paused: ['已暂停', 'pending'],
+  online: ['Online', 'good'],
+  authorized: ['Authorized', 'pending'],
+  not_connected: ['Not connected', 'quiet'],
+  retired: ['Retired', 'quiet'],
+  open: ['Open', 'good'],
+  pending: ['Awaiting approval', 'pending'],
+  closed: ['Closed', 'quiet'],
+  paused: ['Paused', 'pending'],
 };
 export function Badge({ status, label }: { status: string; label?: string }) {
   const [text, tone] = labels[status] ?? [status, 'pending'];
@@ -60,7 +60,7 @@ export function Empty({
   );
 }
 
-export function CopyButton({ value, label = '复制' }: { value: string; label?: string }) {
+export function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -74,7 +74,7 @@ export function CopyButton({ value, label = '复制' }: { value: string; label?:
         }
       }}
     >
-      {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? '已复制' : label}
+      {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? 'Copied' : label}
     </button>
   );
 }
@@ -105,7 +105,7 @@ export function Modal({
     >
       <div className="modal-heading">
         <h2>{title}</h2>
-        <button className="icon-button" aria-label="关闭" onClick={onClose}>
+        <button className="icon-button" aria-label="Close" onClick={onClose}>
           <X size={20} />
         </button>
       </div>
@@ -130,12 +130,12 @@ export function SystemBrowserNotice() {
   return (
     <div className="notice">
       <div>
-        <strong>请用系统浏览器打开这个页面。</strong>
+        <strong>Open this page in your system browser.</strong>
         <p>
-          当前是 App 内置浏览器或不支持通行密钥的环境。复制链接，粘贴到 Safari、Chrome 或 Edge
-          中打开，链接依然有效。
+          This is an in-app browser or an environment that does not support passkeys. Copy the link
+          and open it in Safari, Chrome or Edge. The link still works.
         </p>
-        <CopyButton value={location.href} label="复制链接" />
+        <CopyButton value={location.href} label="Copy link" />
       </div>
     </div>
   );
