@@ -9,7 +9,7 @@ if (!apiKey) {
   console.error('Set MUSE_API_KEY to run this evaluation.');
   process.exit(1);
 }
-const model = process.env.MUSE_MODEL ?? 'muse-spark-1.1';
+const model = process.env.MUSE_MODEL ?? 'muse-spark-1.3';
 const report = await runEval(
   museClient({ apiKey, model, base: process.env.MUSE_API_BASE ?? 'https://api.meta.ai/v1' }),
   Number(process.env.EVAL_REPEATS ?? 3),

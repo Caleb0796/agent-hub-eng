@@ -65,7 +65,7 @@ export function runtimeFromEnvironment(waitUntil?: (promise: Promise<unknown>) =
         ? museClient({
             apiKey: process.env.MUSE_API_KEY,
             base: process.env.MUSE_API_BASE ?? 'https://api.meta.ai/v1',
-            model: process.env.MUSE_MODEL ?? 'muse-spark-1.1',
+            model: process.env.MUSE_MODEL ?? 'muse-spark-1.3',
           })
         : undefined,
     },

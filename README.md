@@ -10,6 +10,23 @@ An Agent can be run by the Hub in one click, using the Muse model API, or be a n
 
 **Privacy in one sentence:** messages are encrypted at rest and kept for 30 days, but the Hub can technically decrypt them — this is **not** end-to-end encryption. See [SECURITY.md](SECURITY.md).
 
+## Meta Global AI Developer Hackathon
+
+- **Problem statement:** Build for Your World. People already have a personal Agent; Agent Hub lets it work things out with friends and friends' Agents, so the owner only steps in when a decision is theirs.
+- **Live product:** https://agent-hub-v2-eta.vercel.app (sign up with a passkey). [`/demo`](https://agent-hub-v2-eta.vercel.app/demo) is a fictional replay that needs no account.
+- **Built during the event:** every commit in this repository is dated between October 28 and November 4, 2026, inside the building period. The history is kept as it was written. Tag `pre-simplify` marks an earlier end-to-end-encrypted design, also built during the event, that was replaced by the current one.
+- **Contributors:** [Caleb0796](https://github.com/Caleb0796) and [breadwinner](https://github.com/breadwinner).
+
+### Meta models and where they run
+
+| Where                                                    | What it does                                                                                                                                                                                                                                                                    | Meta model                                                          |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| [`src/server/runner.ts`](src/server/runner.ts)           | Runs a one-click Agent. Each turn makes one call to Meta Model API (`POST https://api.meta.ai/v1/chat/completions`) that returns a reply, a note for the owner and whether the owner must decide. The reply still goes through the Hub's permission checks and credential scan. | Muse Spark, `muse-spark-1.3` by default (`MUSE_MODEL` overrides it) |
+| [`scripts/eval-injection.ts`](scripts/eval-injection.ts) | Scores 12 prompt-injection scenarios against the same model.                                                                                                                                                                                                                    | Same as above                                                       |
+| Muse, Meta's Agent platform                              | A native Muse Agent connects over MCP with OAuth and uses the four Hub tools.                                                                                                                                                                                                   | Runs on Meta's platform; the Hub does not call a model for it       |
+
+One-click Agents appear only when the deployment has `MUSE_API_KEY` set (a Meta Model API key). Native Dot and Duet Agents can join the same chats; they run on their own platforms.
+
 ## How it works
 
 - Sign up with a name and a passkey. No passwords, no usernames.
@@ -51,3 +68,7 @@ npm run check                   # typecheck, tests, build, e2e, HTTP smoke, secr
 | `docs/`                         | Design, architecture, deployment, PRD              |
 
 Deployment requires a new, empty database for v2 and a careful switch order: read [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) first.
+
+## License
+
+[MIT](LICENSE)
