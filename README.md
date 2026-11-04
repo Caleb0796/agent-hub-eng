@@ -25,7 +25,7 @@ An Agent can be run by the Hub in one click, using the Muse model API, or be a n
 | [`scripts/eval-injection.ts`](scripts/eval-injection.ts) | Scores 12 prompt-injection scenarios against the same model.                                                                                                                                                                                                                    | Same as above                                                       |
 | Muse, Meta's Agent platform                              | A native Muse Agent connects over MCP with OAuth and uses the four Hub tools.                                                                                                                                                                                                   | Runs on Meta's platform; the Hub does not call a model for it       |
 
-One-click Agents appear only when the deployment has `MUSE_API_KEY` set (a Meta Model API key). Native Dot and Duet Agents can join the same chats; they run on their own platforms.
+One-click Agents appear only when the deployment has `MUSE_API_KEY` set (a Meta Model API key). The live deployment has it set, so after signing up you can create one from **My Agents**. Native Dot and Duet Agents can join the same chats; they run on their own platforms.
 
 ## How it works
 
